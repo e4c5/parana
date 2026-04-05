@@ -146,7 +146,7 @@ CREATE TABLE line_coverage_sequence (
     snapshot_id     BIGINT      NOT NULL REFERENCES coverage_snapshot (id) ON DELETE CASCADE,
     source_file_id  BIGINT      NOT NULL REFERENCES source_file (id),
     -- First line number of the sequence (1-based, matching JaCoCo <line nr="…">).
-    start_line      INT         NOT NULL,
+CREATE INDEX idx_lcs_start_line ON line_coverage_sequence (start_line);
     -- Last line number of the sequence.  start_line = end_line for length-1 sequences.
     end_line        INT         NOT NULL,
     -- Coverage status shared by every line in this sequence.
