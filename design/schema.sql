@@ -88,16 +88,17 @@ CREATE INDEX idx_source_file_package ON source_file (package_id);
 
 
 -- ---------------------------------------------------------------------------
--- 5.  Class  (one row per unique <class> across all source files)
+-- 5.  Java class  (one row per unique <class> across all source files)
+--     Named java_class because CLASS is a reserved word in standard SQL.
 -- ---------------------------------------------------------------------------
-CREATE TABLE class (
+CREATE TABLE java_class (
     id             BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     source_file_id BIGINT       NOT NULL REFERENCES source_file (id),
     -- Fully-qualified class name in JVM form, e.g. "com/example/service/UserService".
     name           VARCHAR(512) NOT NULL UNIQUE
 );
 
-CREATE INDEX idx_class_source_file ON class (source_file_id);
+CREATE INDEX idx_java_class_source_file ON java_class (source_file_id);
 
 
 -- ---------------------------------------------------------------------------
@@ -105,12 +106,11 @@ CREATE INDEX idx_class_source_file ON class (source_file_id);
 -- ---------------------------------------------------------------------------
 CREATE TABLE method (
     id          BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    class_id    BIGINT       NOT NULL REFERENCES class (id),
+    class_id    BIGINT       NOT NULL REFERENCES java_class (id),
     -- Method simple name, e.g. "findById".
     name        VARCHAR(255) NOT NULL,
     -- JVM method descriptor, e.g. "(Ljava/lang/Long;)Ljava/util/Optional;".
     descriptor  VARCHAR(512) NOT NULL,
-    -- First source line of the method as reported by JaCoCo.
     -- First source line of the method as reported by JaCoCo.
     start_line  INT NOT NULL,
     UNIQUE (class_id, name, descriptor)
@@ -127,14 +127,14 @@ CREATE INDEX idx_method_class ON method (class_id);
 --     into a single sequence row (start_line … end_line).  A sequence of
 --     length 1 is represented as start_line = end_line.
 --
---     Coverage status values (matching JaCoCo's HTML colour coding):
---       COVERED        – every instruction on every line was executed
---                        (covered_instructions > 0, missed_instructions = 0,
---                         and any branches present are fully covered)
---       NOT_COVERED    – no instruction on any line was executed
---                        (covered_instructions = 0)
---       PARTLY_COVERED – at least one instruction or branch was missed but at
---                        least one was also executed
+--     Coverage status values stored as SMALLINT constants:
+--       0 = NOT_COVERED    – no instruction on any line was executed (ci = 0)
+--       1 = PARTLY_COVERED – some instructions or branches executed, some missed
+--       2 = COVERED        – every instruction executed and all branches (if
+--                            any) covered (ci > 0, mi = 0, mb = 0)
+--
+--     Integer constants are used rather than text labels to save storage and
+--     avoid case-sensitivity issues across database dialects.
 --
 --     Rationale: large source files typically have long runs of lines in the
 --     same status (e.g. an entire fully-covered method body); sequences reduce
@@ -143,17 +143,18 @@ CREATE INDEX idx_method_class ON method (class_id);
 --     captured at method / class / file level in the aggregate tables below.
 -- ---------------------------------------------------------------------------
 CREATE TABLE line_coverage_sequence (
-    id              BIGINT      NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    snapshot_id     BIGINT      NOT NULL REFERENCES coverage_snapshot (id) ON DELETE CASCADE,
-    source_file_id  BIGINT      NOT NULL REFERENCES source_file (id),
+    id              BIGINT   NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    snapshot_id     BIGINT   NOT NULL REFERENCES coverage_snapshot (id) ON DELETE CASCADE,
+    source_file_id  BIGINT   NOT NULL REFERENCES source_file (id),
     -- First line number of the sequence (1-based, matching JaCoCo <line nr="…">).
-    start_line      INT         NOT NULL,
+    start_line      INT      NOT NULL,
     -- Last line number of the sequence.  start_line = end_line for length-1 sequences.
-    end_line        INT         NOT NULL,
-    -- Coverage status shared by every line in this sequence.
-    coverage_status VARCHAR(16) NOT NULL,
-    CONSTRAINT chk_line_range     CHECK (end_line >= start_line),
-    CONSTRAINT chk_coverage_status CHECK (coverage_status IN ('COVERED', 'NOT_COVERED', 'PARTLY_COVERED'))
+    end_line        INT      NOT NULL,
+    -- Coverage status shared by every line in this sequence (0=NOT_COVERED,
+    -- 1=PARTLY_COVERED, 2=COVERED).
+    coverage_status SMALLINT NOT NULL,
+    CONSTRAINT chk_line_range      CHECK (end_line >= start_line),
+    CONSTRAINT chk_coverage_status CHECK (coverage_status BETWEEN 0 AND 2)
 );
 
 CREATE INDEX idx_lcs_snapshot      ON line_coverage_sequence (snapshot_id);
@@ -189,7 +190,7 @@ CREATE INDEX idx_method_cov_method   ON method_coverage (method_id);
 CREATE TABLE class_coverage (
     id                    BIGINT  NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     snapshot_id           BIGINT  NOT NULL REFERENCES coverage_snapshot (id) ON DELETE CASCADE,
-    class_id              BIGINT  NOT NULL REFERENCES class (id),
+    class_id              BIGINT  NOT NULL REFERENCES java_class (id),
     missed_instructions   INT     NOT NULL DEFAULT 0,
     covered_instructions  INT     NOT NULL DEFAULT 0,
     missed_branches       INT     NOT NULL DEFAULT 0,
@@ -267,7 +268,7 @@ CREATE INDEX idx_file_cov_source_file ON file_coverage (source_file_id);
 --     b.covered_branches                                   AS covered_branches_after
 -- FROM       class_coverage  a
 -- JOIN       class_coverage  b  ON b.class_id = a.class_id
--- JOIN       class           c  ON c.id = a.class_id
+-- JOIN       java_class  c  ON c.id = a.class_id
 -- WHERE      a.snapshot_id = :snapshot_id_before
 --   AND      b.snapshot_id = :snapshot_id_after
 -- ORDER BY   c.name;
@@ -285,7 +286,7 @@ CREATE INDEX idx_file_cov_source_file ON file_coverage (source_file_id);
 -- FROM       method_coverage  a
 -- JOIN       method_coverage  b  ON b.method_id = a.method_id
 -- JOIN       method           m  ON m.id = a.method_id
--- JOIN       class            c  ON c.id = m.class_id
+-- JOIN       java_class       c  ON c.id = m.class_id
 -- WHERE      a.snapshot_id = :snapshot_id_before
 --   AND      b.snapshot_id = :snapshot_id_after
 -- ORDER BY   c.name, m.name;

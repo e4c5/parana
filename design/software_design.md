@@ -32,11 +32,11 @@ packages in different projects never conflict.
 │                                      │                                  │
 │                              Parana Importer                             │
 │                            ┌─────────────────┐                          │
-│   git remote get-url ──────►  git_origin      │                          │
-│   git rev-parse HEAD ──────►  git_commit_hash │                          │
-│   git status / hash   ─────►  uncommitted_    │                          │
-│   git ls-files         ────►  files_hash      │                          │
-│   system clock        ─────►  captured_at     │                          │
+│   JGit: RemoteConfig ──────►  git_origin      │                          │
+│   JGit: Repository   ──────►  git_commit_hash │                          │
+│   JGit: Status/Walk  ──────►  uncommitted_    │                          │
+│                               files_hash      │                          │
+│   system clock       ──────►  captured_at     │                          │
 │                            └────────┬────────┘                          │
 │                                     │ JDBC / ORM                        │
 └─────────────────────────────────────┼────────────────────────────────────┘
@@ -65,9 +65,9 @@ database in one atomic transaction.
 | Input | Source |
 |---|---|
 | JaCoCo XML file | File path supplied on the command line or via API |
-| `git_origin` | Output of `git remote get-url origin` run in the project root |
-| `git_commit_hash` | Output of `git rev-parse HEAD` run in the project root |
-| `uncommitted_files_hash` | Computed from the working tree (see §3.1.1) |
+| `git_origin` | JGit `RemoteConfig` for the `origin` remote of the project's `.git` directory |
+| `git_commit_hash` | JGit `Repository.resolve("HEAD")` — SHA-1 of the HEAD commit |
+| `uncommitted_files_hash` | Computed from the working tree via JGit (see §3.1.1) |
 | `captured_at` | Current UTC timestamp at import time |
 
 **Processing steps**
@@ -77,9 +77,9 @@ database in one atomic transaction.
 2. **Resolve codebase** – Look up or insert a `codebase` row for `git_origin`.
 3. **Resolve references** – For each package / source-file / class / method,
    look up or insert the corresponding normalised row (`package`, `source_file`,
-   `class`, `method` tables), scoped to the resolved `codebase_id`.  These rows
-   are write-once; the same entity discovered in a later snapshot reuses the
-   existing row.
+   `java_class`, `method` tables), scoped to the resolved `codebase_id`.  These
+   rows are write-once; the same entity discovered in a later snapshot reuses
+   the existing row.
 4. **Create snapshot** – Insert one row into `coverage_snapshot` with
    `codebase_id` and the three version-control columns.
 5. **Import line sequences** – For each source file, convert the ordered list of
@@ -96,19 +96,23 @@ The goal is a stable, reproducible identifier for the state of the working tree
 that is *not* yet committed.  This includes both modified tracked files and any
 untracked files that have not been explicitly ignored.
 
+The importer uses the **JGit** library (`org.eclipse.jgit`) to query repository
+state without requiring a `git` executable in the environment.
+
 Algorithm:
-1. Run `git status --porcelain` to list modified, added, deleted, or renamed
-   *tracked* files.
-2. Run `git ls-files --others --exclude-standard` to list *untracked* files
-   (files not yet added to git, excluding `.gitignore`-d paths).
-3. Combine both lists and sort deterministically (lexicographic order by path).
-4. For each entry in the sorted list, concatenate:
+1. Open the project's `.git` directory with JGit `FileRepositoryBuilder`.
+2. Obtain **modified / staged / deleted tracked files** via `Git.status().call()`
+   — this combines the index diff and working-tree diff.
+3. Obtain **untracked files** from `Status.getUntracked()` (equivalent to
+   `git ls-files --others --exclude-standard`; respects `.gitignore`).
+4. Combine both sets and sort deterministically (lexicographic order by path).
+5. For each entry in the sorted list, concatenate:
    `<status_code> <path> <sha256_of_file_content>`.
    - For deleted tracked files the content hash is replaced by the fixed string
      `DELETED`.
    - For untracked files the status code is `?`.
-5. Compute SHA-256 of the entire concatenated string.
-6. If both lists in steps 1 and 2 are empty, store the constant string `CLEAN`
+6. Compute SHA-256 of the entire concatenated string.
+7. If both sets in steps 2 and 3 are empty, store the constant string `CLEAN`
    instead of computing a hash.
 
 #### 3.1.2  Line Sequence Algorithm
@@ -117,10 +121,10 @@ JaCoCo reports coverage per individual line via `<line mi="…" ci="…" mb="…
 Parana first maps each line to one of three statuses, then compresses consecutive
 lines with the same status into a single sequence row.
 
-**Coverage status derivation (per line):**
-- `COVERED` — all instructions executed: `ci > 0` and `mi = 0`, and either no branches exist or all are covered (`mb = 0`)
-- `NOT_COVERED` — no instructions executed: `ci = 0`
-- `PARTLY_COVERED` — some instructions or branches executed, some missed: `ci > 0` and (`mi > 0` or `mb > 0`)
+**Coverage status derivation (per line) — maps to SMALLINT stored in DB:**
+- `2` (COVERED) — all instructions executed: `ci > 0` and `mi = 0`, and either no branches exist or all are covered (`mb = 0`)
+- `0` (NOT_COVERED) — no instructions executed: `ci = 0`
+- `1` (PARTLY_COVERED) — some instructions or branches executed, some missed: `ci > 0` and (`mi > 0` or `mb > 0`)
 
 **Sequence compression:**
 ```
@@ -200,13 +204,13 @@ shows how the tables relate to one another.
 ```
 codebase
     │
-    ├──(1:N)── package ──(1:N)── source_file ──(1:N)── class ──(1:N)── method
+    ├──(1:N)── package ──(1:N)── source_file ──(1:N)── java_class ──(1:N)── method
     │
     └──(1:N)── coverage_snapshot
                     │
                     ├──(1:N)── line_coverage_sequence ──(N:1)── source_file
                     ├──(1:N)── file_coverage          ──(N:1)── source_file
-                    ├──(1:N)── class_coverage         ──(N:1)── class
+                    ├──(1:N)── class_coverage         ──(N:1)── java_class
                     └──(1:N)── method_coverage        ──(N:1)── method
 ```
 
@@ -215,11 +219,13 @@ codebase
 | Decision | Rationale |
 |---|---|
 | `codebase` table keyed on `git_origin` | Uniquely identifies each project; scopes all structural entities so identical package/class names in different repos never collide |
-| Normalise `package`, `source_file`, `class`, `method` as write-once lookup tables scoped to `codebase` | Avoids duplicating large strings in every snapshot; enables cross-snapshot JOIN on stable IDs |
-| Store line data as status-based sequences, not individual lines | A sequence is a run of consecutive lines all sharing the same JaCoCo colour (green/red/yellow); the status is the natural grouping key |
+| Table named `java_class` rather than `class` | `CLASS` is a reserved word in standard SQL and most database dialects; prefixing avoids quoting every reference |
+| Normalise `package`, `source_file`, `java_class`, `method` as write-once lookup tables scoped to `codebase` | Avoids duplicating large strings in every snapshot; enables cross-snapshot JOIN on stable IDs |
+| Store line data as status-based sequences with `SMALLINT` constants | A sequence is a run of consecutive lines sharing the same status (0/1/2); integers save storage and avoid case-sensitivity issues across dialects |
 | Store aggregate counters in separate tables (`file_coverage`, `class_coverage`, `method_coverage`) | Comparison queries run against small aggregate rows without needing to re-aggregate sequences |
 | Three separate version-control columns on `coverage_snapshot` | Allows querying by commit hash alone (clean builds), filtering by uncommitted-state hash, or ordering by wall-clock time |
 | `uncommitted_files_hash` includes untracked files | Untracked source files can affect test results just as much as modified tracked files; omitting them would produce identical hashes for different working trees |
+| Use JGit API rather than `git` CLI subprocess | JGit reads the `.git` directory directly; no `git` executable is required in the runtime environment, avoiding process-launch overhead and PATH dependencies |
 | `ON DELETE CASCADE` on all snapshot foreign keys | Simplifies snapshot purging: deleting a `coverage_snapshot` row removes all associated data |
 
 ---
@@ -240,9 +246,9 @@ jacoco.xml
                            ▼
 ┌─────────────────────────────────────────────────────┐
 │  Reference Resolver                                 │
-│  • Upsert codebase (keyed on git_origin)            │
-│  • Upsert package / source_file / class / method    │
-│    (all scoped to codebase_id)                      │
+│  • Upsert codebase (keyed on git_origin via JGit)   │
+│  • Upsert package / source_file / java_class /      │
+│    method (all scoped to codebase_id)               │
 │  • Returns stable database IDs                      │
 └──────────────────────────┬──────────────────────────┘
                            │
@@ -250,8 +256,8 @@ jacoco.xml
 ┌─────────────────────────────────────────────────────┐
 │  Snapshot Writer                                    │
 │  • Creates coverage_snapshot row                    │
-│  • Derives COVERED / NOT_COVERED / PARTLY_COVERED   │
-│    status per line, runs sequence-compression       │
+│  • Derives status per line (0/1/2), runs            │
+│    sequence-compression                             │
 │  • Bulk-inserts line_coverage_sequence rows         │
 │  • Bulk-inserts method/class/file coverage rows     │
 └──────────────────────────┬──────────────────────────┘
@@ -267,11 +273,11 @@ jacoco.xml
 1. A single JaCoCo XML report is produced per import run; multiple modules
    should be merged into one report before importing (JaCoCo supports this via
    the `merge` goal).
-2. The `git` executable must be available in the environment where the importer
-   runs so that origin URL, commit hash, and working-tree information can be
-   retrieved.
-3. `git remote get-url origin` must return a non-empty URL.  Repositories
-   without a configured remote are not supported.
+2. The importer uses **JGit** (`org.eclipse.jgit`) to read repository metadata
+   (remote origin, HEAD commit, working-tree status, untracked files).  No
+   `git` executable is required in the runtime environment.
+3. The project root must contain a `.git` directory (bare repositories are not
+   supported).  The `origin` remote must have a push or fetch URL configured.
 4. The schema is written in standard SQL-2003 (`GENERATED ALWAYS AS IDENTITY`).
    Minor dialect adjustments (e.g., `SERIAL` for PostgreSQL, `AUTO_INCREMENT`
    for MySQL) may be needed.
