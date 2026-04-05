@@ -111,7 +111,8 @@ CREATE TABLE method (
     -- JVM method descriptor, e.g. "(Ljava/lang/Long;)Ljava/util/Optional;".
     descriptor  VARCHAR(512) NOT NULL,
     -- First source line of the method as reported by JaCoCo.
-CREATE INDEX idx_method_start_line ON method (start_line);
+    -- First source line of the method as reported by JaCoCo.
+    start_line  INT NOT NULL,
     UNIQUE (class_id, name, descriptor)
 );
 
