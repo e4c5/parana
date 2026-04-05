@@ -2,15 +2,18 @@
 -- Parana – JaCoCo Coverage Tracking Schema
 -- =============================================================================
 -- Design goals
---   • Every snapshot captures the full JaCoCo XML for one run of the test suite.
+--   • The system supports multiple independent codebases.  Each codebase is
+--     identified by its git remote origin URL.
+--   • Every snapshot captures the full JaCoCo XML for one run of the test suite
+--     against a specific codebase.
 --   • A snapshot is uniquely tied to a point in time via three columns:
 --       git_commit_hash       – SHA-1 of the HEAD commit at measurement time
---       uncommitted_files_hash – deterministic hash of every file that is
---                                tracked by git but has local modifications
---                                (staged or unstaged) at measurement time
+--       uncommitted_files_hash – deterministic hash of every modified tracked
+--                                file AND every untracked file present in the
+--                                working tree at measurement time
 --       captured_at           – UTC wall-clock timestamp of the measurement
 --   • Line-level data is stored as *sequences* of consecutive lines that share
---     the same coverage state, rather than one row per line.  A sequence of
+--     the same coverage status, rather than one row per line.  A sequence of
 --     length 1 (start_line = end_line) is valid and common.
 --   • Aggregate counters (at file, class, and method level) are stored
 --     separately to support fast comparison queries without re-aggregating
@@ -19,39 +22,59 @@
 
 
 -- ---------------------------------------------------------------------------
--- 1.  Snapshot  (one row per JaCoCo report import)
+-- 1.  Codebase  (one row per tracked repository)
+-- ---------------------------------------------------------------------------
+CREATE TABLE codebase (
+    id          BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    -- Remote origin URL of the git repository, e.g.
+    -- "https://github.com/example/myproject.git".
+    -- This is the stable identifier that ties all snapshots and structural
+    -- entities (packages, classes, methods) to one codebase.
+    git_origin  VARCHAR(512) NOT NULL UNIQUE
+);
+
+
+-- ---------------------------------------------------------------------------
+-- 2.  Snapshot  (one row per JaCoCo report import)
 -- ---------------------------------------------------------------------------
 CREATE TABLE coverage_snapshot (
-    id                      BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id                      BIGINT      NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    -- The codebase this snapshot belongs to.
+    codebase_id             BIGINT      NOT NULL REFERENCES codebase (id),
     -- The SHA-1 hash of the git HEAD commit at the time the report was captured.
-    git_commit_hash         CHAR(40)     NOT NULL,
+    git_commit_hash         CHAR(40)    NOT NULL,
     -- A deterministic hash (e.g. SHA-256) computed from the sorted list of
-    -- paths + content-hashes of every file that was modified but not yet
-    -- committed at measurement time.  An empty string (or a well-known constant
-    -- such as 'CLEAN') indicates a clean working tree.
-    uncommitted_files_hash  VARCHAR(64)  NOT NULL DEFAULT '',
+    -- paths + content-hashes of every file that is modified (tracked, staged,
+    -- or unstaged) OR untracked at measurement time.  The constant 'CLEAN'
+    -- indicates a clean working tree with no untracked files.
+    uncommitted_files_hash  VARCHAR(64) NOT NULL DEFAULT 'CLEAN',
     -- UTC timestamp when the JaCoCo report was imported.
-    captured_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    -- The "name" attribute from the root <report> element of the JaCoCo XML.
-    report_name             VARCHAR(255) NOT NULL DEFAULT ''
+    captured_at             TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_snapshot_commit  ON coverage_snapshot (git_commit_hash);
-CREATE INDEX idx_snapshot_time    ON coverage_snapshot (captured_at);
+CREATE INDEX idx_snapshot_codebase ON coverage_snapshot (codebase_id);
+CREATE INDEX idx_snapshot_commit   ON coverage_snapshot (git_commit_hash);
+CREATE INDEX idx_snapshot_time     ON coverage_snapshot (captured_at);
 
 
 -- ---------------------------------------------------------------------------
--- 2.  Package  (Java package – normalised lookup table)
+-- 3.  Package  (Java package – normalised lookup table, scoped to codebase)
 -- ---------------------------------------------------------------------------
 CREATE TABLE package (
-    id    BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id          BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    -- The codebase that owns this package.  The same package name (e.g.
+    -- "com/example/service") can exist in multiple codebases without collision.
+    codebase_id BIGINT       NOT NULL REFERENCES codebase (id),
     -- Package name in JVM slash-separated form, e.g. "com/example/service".
-    name  VARCHAR(512) NOT NULL UNIQUE
+    name        VARCHAR(512) NOT NULL,
+    UNIQUE (codebase_id, name)
 );
+
+CREATE INDEX idx_package_codebase ON package (codebase_id);
 
 
 -- ---------------------------------------------------------------------------
--- 3.  Source file  (one row per unique <sourcefile> across all packages)
+-- 4.  Source file  (one row per unique <sourcefile> across all packages)
 -- ---------------------------------------------------------------------------
 CREATE TABLE source_file (
     id          BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -65,7 +88,7 @@ CREATE INDEX idx_source_file_package ON source_file (package_id);
 
 
 -- ---------------------------------------------------------------------------
--- 4.  Class  (one row per unique <class> across all source files)
+-- 5.  Class  (one row per unique <class> across all source files)
 -- ---------------------------------------------------------------------------
 CREATE TABLE class (
     id             BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -78,7 +101,7 @@ CREATE INDEX idx_class_source_file ON class (source_file_id);
 
 
 -- ---------------------------------------------------------------------------
--- 5.  Method  (one row per unique <method> within a class)
+-- 6.  Method  (one row per unique <method> within a class)
 -- ---------------------------------------------------------------------------
 CREATE TABLE method (
     id          BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -96,32 +119,40 @@ CREATE INDEX idx_method_class ON method (class_id);
 
 
 -- ---------------------------------------------------------------------------
--- 6.  Line coverage sequence
+-- 7.  Line coverage sequence
 --
 --     Core line-level data.  Instead of storing one row per line number,
---     consecutive lines that have identical coverage counters are collapsed
+--     consecutive lines that share the same coverage *status* are collapsed
 --     into a single sequence row (start_line … end_line).  A sequence of
 --     length 1 is represented as start_line = end_line.
 --
---     Rationale: large source files typically have long runs of fully-covered
---     or fully-missed lines; sequences reduce storage while preserving all
---     information.
+--     Coverage status values (matching JaCoCo's HTML colour coding):
+--       COVERED        – every instruction on every line was executed
+--                        (covered_instructions > 0, missed_instructions = 0,
+--                         and any branches present are fully covered)
+--       NOT_COVERED    – no instruction on any line was executed
+--                        (covered_instructions = 0)
+--       PARTLY_COVERED – at least one instruction or branch was missed but at
+--                        least one was also executed
+--
+--     Rationale: large source files typically have long runs of lines in the
+--     same status (e.g. an entire fully-covered method body); sequences reduce
+--     row count while preserving actionable line-range information.  Precise
+--     numeric counters (missed_instructions, covered_branches, etc.) are
+--     captured at method / class / file level in the aggregate tables below.
 -- ---------------------------------------------------------------------------
 CREATE TABLE line_coverage_sequence (
-    id                    BIGINT  NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    snapshot_id           BIGINT  NOT NULL REFERENCES coverage_snapshot (id) ON DELETE CASCADE,
-    source_file_id        BIGINT  NOT NULL REFERENCES source_file (id),
+    id              BIGINT      NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    snapshot_id     BIGINT      NOT NULL REFERENCES coverage_snapshot (id) ON DELETE CASCADE,
+    source_file_id  BIGINT      NOT NULL REFERENCES source_file (id),
     -- First line number of the sequence (1-based, matching JaCoCo <line nr="…">).
-    start_line            INT     NOT NULL,
+    start_line      INT         NOT NULL,
     -- Last line number of the sequence.  start_line = end_line for length-1 sequences.
-    end_line              INT     NOT NULL,
-    -- Instruction-level counters summed across all lines in the sequence.
-    missed_instructions   INT     NOT NULL DEFAULT 0,
-    covered_instructions  INT     NOT NULL DEFAULT 0,
-    -- Branch counters summed across all lines in the sequence.
-    missed_branches       INT     NOT NULL DEFAULT 0,
-    covered_branches      INT     NOT NULL DEFAULT 0,
-    CONSTRAINT chk_line_range CHECK (end_line >= start_line)
+    end_line        INT         NOT NULL,
+    -- Coverage status shared by every line in this sequence.
+    coverage_status VARCHAR(16) NOT NULL,
+    CONSTRAINT chk_line_range     CHECK (end_line >= start_line),
+    CONSTRAINT chk_coverage_status CHECK (coverage_status IN ('COVERED', 'NOT_COVERED', 'PARTLY_COVERED'))
 );
 
 CREATE INDEX idx_lcs_snapshot      ON line_coverage_sequence (snapshot_id);
@@ -130,7 +161,7 @@ CREATE INDEX idx_lcs_snap_file     ON line_coverage_sequence (snapshot_id, sourc
 
 
 -- ---------------------------------------------------------------------------
--- 7.  Method coverage  (aggregate counters per method per snapshot)
+-- 8.  Method coverage  (aggregate counters per method per snapshot)
 -- ---------------------------------------------------------------------------
 CREATE TABLE method_coverage (
     id                    BIGINT  NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -152,7 +183,7 @@ CREATE INDEX idx_method_cov_method   ON method_coverage (method_id);
 
 
 -- ---------------------------------------------------------------------------
--- 8.  Class coverage  (aggregate counters per class per snapshot)
+-- 9.  Class coverage  (aggregate counters per class per snapshot)
 -- ---------------------------------------------------------------------------
 CREATE TABLE class_coverage (
     id                    BIGINT  NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -176,7 +207,7 @@ CREATE INDEX idx_class_cov_class    ON class_coverage (class_id);
 
 
 -- ---------------------------------------------------------------------------
--- 9.  File coverage  (aggregate counters per source file per snapshot)
+-- 10.  File coverage  (aggregate counters per source file per snapshot)
 -- ---------------------------------------------------------------------------
 CREATE TABLE file_coverage (
     id                    BIGINT  NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
