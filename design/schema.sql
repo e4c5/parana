@@ -38,21 +38,31 @@ CREATE TABLE codebase (
 -- 2.  Snapshot  (one row per JaCoCo report import)
 -- ---------------------------------------------------------------------------
 CREATE TABLE coverage_snapshot (
-    id                      BIGINT      NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id                      BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     -- The codebase this snapshot belongs to.
-    codebase_id             BIGINT      NOT NULL REFERENCES codebase (id),
+    codebase_id             BIGINT       NOT NULL REFERENCES codebase (id),
+    -- Symbolic branch name at the time the report was captured, e.g. "main"
+    -- or "feature/my-branch".  Obtained via JGit Repository.getBranch().
+    git_branch              VARCHAR(255) NOT NULL,
     -- The SHA-1 hash of the git HEAD commit at the time the report was captured.
-    git_commit_hash         CHAR(40)    NOT NULL,
-    -- A deterministic hash (e.g. SHA-256) computed from the sorted list of
+    git_commit_hash         CHAR(40)     NOT NULL,
+    -- A deterministic hash (SHA-256) computed from the sorted list of
     -- paths + content-hashes of every file that is modified (tracked, staged,
     -- or unstaged) OR untracked at measurement time.  The constant 'CLEAN'
     -- indicates a clean working tree with no untracked files.
-    uncommitted_files_hash  VARCHAR(64) NOT NULL DEFAULT 'CLEAN',
-    -- UTC timestamp when the JaCoCo report was imported.
-    captured_at             TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP
+    -- No database default: the importer must always supply an explicit value
+    -- so that a missing computation cannot be silently recorded as 'CLEAN'.
+    uncommitted_files_hash  VARCHAR(64)  NOT NULL,
+    -- UTC timestamp of JaCoCo report generation, supplied by the caller.
+    -- The importer must not rely on CURRENT_TIMESTAMP, which would record
+    -- the insert time rather than the report-generation time.
+    captured_at             TIMESTAMP    NOT NULL,
+    -- Prevent duplicate snapshots from CI retries; makes import idempotent.
+    UNIQUE (codebase_id, git_commit_hash, uncommitted_files_hash)
 );
 
 CREATE INDEX idx_snapshot_codebase ON coverage_snapshot (codebase_id);
+CREATE INDEX idx_snapshot_branch   ON coverage_snapshot (codebase_id, git_branch);
 CREATE INDEX idx_snapshot_commit   ON coverage_snapshot (git_commit_hash);
 CREATE INDEX idx_snapshot_time     ON coverage_snapshot (captured_at);
 
@@ -95,7 +105,10 @@ CREATE TABLE java_class (
     id             BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     source_file_id BIGINT       NOT NULL REFERENCES source_file (id),
     -- Fully-qualified class name in JVM form, e.g. "com/example/service/UserService".
-    name           VARCHAR(512) NOT NULL UNIQUE
+    -- Unique per source file, not globally: the same class name can exist in
+    -- multiple repositories (different source_file_id values).
+    name           VARCHAR(512) NOT NULL,
+    UNIQUE (source_file_id, name)
 );
 
 CREATE INDEX idx_java_class_source_file ON java_class (source_file_id);
@@ -232,6 +245,32 @@ CREATE TABLE file_coverage (
 
 CREATE INDEX idx_file_cov_snapshot    ON file_coverage (snapshot_id);
 CREATE INDEX idx_file_cov_source_file ON file_coverage (source_file_id);
+
+
+-- ---------------------------------------------------------------------------
+-- 11.  Package coverage  (aggregate counters per package per snapshot)
+-- ---------------------------------------------------------------------------
+CREATE TABLE package_coverage (
+    id                    BIGINT  NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    snapshot_id           BIGINT  NOT NULL REFERENCES coverage_snapshot (id) ON DELETE CASCADE,
+    package_id            BIGINT  NOT NULL REFERENCES package (id),
+    missed_instructions   INT     NOT NULL DEFAULT 0,
+    covered_instructions  INT     NOT NULL DEFAULT 0,
+    missed_branches       INT     NOT NULL DEFAULT 0,
+    covered_branches      INT     NOT NULL DEFAULT 0,
+    missed_lines          INT     NOT NULL DEFAULT 0,
+    covered_lines         INT     NOT NULL DEFAULT 0,
+    missed_complexity     INT     NOT NULL DEFAULT 0,
+    covered_complexity    INT     NOT NULL DEFAULT 0,
+    missed_methods        INT     NOT NULL DEFAULT 0,
+    covered_methods       INT     NOT NULL DEFAULT 0,
+    missed_classes        INT     NOT NULL DEFAULT 0,
+    covered_classes       INT     NOT NULL DEFAULT 0,
+    UNIQUE (snapshot_id, package_id)
+);
+
+CREATE INDEX idx_pkg_cov_snapshot ON package_coverage (snapshot_id);
+CREATE INDEX idx_pkg_cov_package  ON package_coverage (package_id);
 
 
 -- =============================================================================

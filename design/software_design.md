@@ -67,8 +67,9 @@ database in one atomic transaction.
 | JaCoCo XML file | File path supplied on the command line or via API |
 | `git_origin` | JGit `RemoteConfig` for the `origin` remote of the project's `.git` directory |
 | `git_commit_hash` | JGit `Repository.resolve("HEAD")` — SHA-1 of the HEAD commit |
-| `uncommitted_files_hash` | Computed from the working tree via JGit (see §3.1.1) |
-| `captured_at` | Current UTC timestamp at import time |
+| `git_branch` | JGit `Repository.getBranch()` — symbolic name of the current branch (e.g. `main`, `feature/foo`) |
+| `uncommitted_files_hash` | Computed from the working tree via JGit (see §3.1.1); the caller must supply the explicit value `CLEAN` for a clean working tree — there is no default |
+| `captured_at` | UTC timestamp of the JaCoCo report generation, supplied by the caller; the importer must not rely on the database `CURRENT_TIMESTAMP` default, which would record insert time rather than report time |
 
 **Processing steps**
 
@@ -81,7 +82,10 @@ database in one atomic transaction.
    rows are write-once; the same entity discovered in a later snapshot reuses
    the existing row.
 4. **Create snapshot** – Insert one row into `coverage_snapshot` with
-   `codebase_id` and the three version-control columns.
+   `codebase_id`, `git_branch`, and the three version-control columns.  If a
+   row with the same `(codebase_id, git_commit_hash, uncommitted_files_hash)`
+   already exists the importer must return the existing snapshot ID and skip all
+   subsequent writes (idempotent import).
 5. **Import line sequences** – For each source file, convert the ordered list of
    `<line>` elements into sequences (see §3.1.2) and insert them into
    `line_coverage_sequence`.
@@ -180,15 +184,16 @@ comparison of coverage at the requested granularity level.
 | `coverage_pct_after` | Same for `snapshot_after` |
 | `delta_coverage_pct` | `after - before` |
 
-Entities present in one snapshot but absent from the other (new or deleted
-files/classes/methods) are included with `NULL` counters for the missing side.
+Only entities present in **both** snapshots are returned.  Files, classes, or
+methods that were added or deleted between the two snapshots are excluded from
+the comparison result.
 
 #### 3.2.3  Comparison Queries
 
 The service executes the pre-defined SQL patterns shown at the bottom of
-`design/schema.sql`.  At each level a `FULL OUTER JOIN` on the entity key
-between the two snapshots' coverage rows is used so that added and deleted
-entities are captured:
+`design/schema.sql`.  At each level an `INNER JOIN` on the entity key between
+the two snapshots' coverage rows is used, which naturally restricts results to
+entities that exist in both snapshots:
 
 - **File level** – join on `file_coverage.source_file_id`
 - **Class level** – join on `class_coverage.class_id`
@@ -211,7 +216,8 @@ codebase
                     ├──(1:N)── line_coverage_sequence ──(N:1)── source_file
                     ├──(1:N)── file_coverage          ──(N:1)── source_file
                     ├──(1:N)── class_coverage         ──(N:1)── java_class
-                    └──(1:N)── method_coverage        ──(N:1)── method
+                    ├──(1:N)── method_coverage        ──(N:1)── method
+                    └──(1:N)── package_coverage       ──(N:1)── package
 ```
 
 ### Key design decisions
@@ -221,9 +227,13 @@ codebase
 | `codebase` table keyed on `git_origin` | Uniquely identifies each project; scopes all structural entities so identical package/class names in different repos never collide |
 | Table named `java_class` rather than `class` | `CLASS` is a reserved word in standard SQL and most database dialects; prefixing avoids quoting every reference |
 | Normalise `package`, `source_file`, `java_class`, `method` as write-once lookup tables scoped to `codebase` | Avoids duplicating large strings in every snapshot; enables cross-snapshot JOIN on stable IDs |
+| `java_class.name` unique per `source_file_id`, not globally | The same fully-qualified class name can exist in multiple repositories; the uniqueness scope must be `(source_file_id, name)` to prevent cross-repo collisions |
 | Store line data as status-based sequences with `SMALLINT` constants | A sequence is a run of consecutive lines sharing the same status (0/1/2); integers save storage and avoid case-sensitivity issues across dialects |
-| Store aggregate counters in separate tables (`file_coverage`, `class_coverage`, `method_coverage`) | Comparison queries run against small aggregate rows without needing to re-aggregate sequences |
-| Three separate version-control columns on `coverage_snapshot` | Allows querying by commit hash alone (clean builds), filtering by uncommitted-state hash, or ordering by wall-clock time |
+| Store aggregate counters in separate tables (`package_coverage`, `file_coverage`, `class_coverage`, `method_coverage`) | Comparison queries run against small aggregate rows without needing to re-aggregate sequences |
+| Four version-control columns on `coverage_snapshot` (`git_branch`, `git_commit_hash`, `uncommitted_files_hash`, `captured_at`) | `git_branch` enables branch-scoped queries (e.g. find the latest snapshot on `main`); commit hash identifies clean builds; uncommitted hash distinguishes dirty working trees; wall-clock timestamp allows ordering |
+| `UNIQUE (codebase_id, git_commit_hash, uncommitted_files_hash)` on `coverage_snapshot` | Prevents duplicate snapshots from CI retries; makes import idempotent — re-importing the same report returns the existing snapshot ID |
+| `uncommitted_files_hash` has no database default | Forcing the importer to supply an explicit value (including the string `CLEAN`) prevents a missing computation from being silently recorded as a clean state |
+| `captured_at` supplied by caller, not by `CURRENT_TIMESTAMP` default | The timestamp should reflect when the JaCoCo report was generated, not when the row was inserted; batch or queued imports can differ significantly |
 | `uncommitted_files_hash` includes untracked files | Untracked source files can affect test results just as much as modified tracked files; omitting them would produce identical hashes for different working trees |
 | Use JGit API rather than `git` CLI subprocess | JGit reads the `.git` directory directly; no `git` executable is required in the runtime environment, avoiding process-launch overhead and PATH dependencies |
 | `ON DELETE CASCADE` on all snapshot foreign keys | Simplifies snapshot purging: deleting a `coverage_snapshot` row removes all associated data |
@@ -272,7 +282,9 @@ jacoco.xml
 
 1. A single JaCoCo XML report is produced per import run; multiple modules
    should be merged into one report before importing (JaCoCo supports this via
-   the `merge` goal).
+   the `merge` goal).  The importer validates that the input contains exactly
+   one `<report>` root element and rejects files with multiple roots with a
+   descriptive error, rather than silently importing a partial report.
 2. The importer uses **JGit** (`org.eclipse.jgit`) to read repository metadata
    (remote origin, HEAD commit, working-tree status, untracked files).  No
    `git` executable is required in the runtime environment.
