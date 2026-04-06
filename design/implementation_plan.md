@@ -67,57 +67,59 @@
 
 ---
 
-## App 2: gRPC Server (`server/`)
+## App 2: REST API Server (`server/`)
 
-**Language:** Python 3.12+ | **Frameworks:** `grpcio`, `grpcio-tools`, `psycopg[binary]`
-
-### Proto Definition (`proto/parana.proto`)
-- [ ] Create `proto/parana.proto` with `syntax = "proto3"`
-- [ ] Define `Codebase` message: `id`, `git_origin`
-- [ ] Define `Snapshot` message: `id`, `codebase_id`, `git_commit_hash`, `uncommitted_files_hash`, `captured_at`
-- [ ] Define `CoverageRow` message: all coverage counter fields plus `entity_name`, `covered_pct_before`, `covered_pct_after`, `delta_covered_pct`
-- [ ] Define `ListCodebasesRequest/Response`
-- [ ] Define `ListSnapshotsRequest` (codebase_id, optional limit, optional offset) / `ListSnapshotsResponse`
-- [ ] Define `GetSnapshotRequest/Response`
-- [ ] Define `CompareSnapshotsRequest` (snapshot_before_id, snapshot_after_id, level enum FILE/CLASS/METHOD, optional filter string) / `CompareSnapshotsResponse` (repeated CoverageRow)
-- [ ] Define `service ParanaService` with the four RPCs above
-
-### Code Generation
-- [ ] Create `server/generate_proto.sh` (or `Makefile` target) to run `python -m grpc_tools.protoc` and output stubs into `server/src/parana_server/proto/`
-- [ ] Commit generated `parana_pb2.py` and `parana_pb2_grpc.py` to the repo
+**Language:** Python 3.12+ | **Frameworks:** `fastapi`, `uvicorn`, `psycopg[binary]`, `python-dotenv`, `openai` (or provider-agnostic LLM client)
 
 ### Project Scaffold
-- [ ] Create `server/pyproject.toml` with entry-point `parana-server`, dependencies (`grpcio`, `grpcio-tools`, `psycopg[binary]`, `python-dotenv`)
-- [ ] Create `src/parana_server/` package
+- [ ] Create `server/` directory
+- [ ] Create `server/pyproject.toml` with entry-point `parana-server`, dependencies (`fastapi`, `uvicorn[standard]`, `psycopg[binary]`, `python-dotenv`, `openai`)
+- [ ] Create `src/parana_server/` package with `__init__.py`
+- [ ] Create `tests/` directory with `conftest.py` and a pytest fixture that spins up a test Postgres instance
 
 ### Database Query Layer (`queries.py`)
 - [ ] Implement `list_codebases(conn) -> list[CodebaseRow]`
 - [ ] Implement `list_snapshots(conn, codebase_id, limit, offset) -> list[SnapshotRow]`
 - [ ] Implement `get_snapshot(conn, snapshot_id) -> SnapshotRow | None`
-- [ ] Implement `compare_snapshots_file(conn, before_id, after_id, filter) -> list[CoverageRow]` — using FULL OUTER JOIN on `file_coverage` (exact SQL from `design/schema.sql`)
+- [ ] Implement `compare_snapshots_file(conn, before_id, after_id, filter) -> list[CoverageRow]` — using INNER JOIN on `file_coverage` (SQL from `design/schema.sql`)
 - [ ] Implement `compare_snapshots_class(conn, before_id, after_id, filter) -> list[CoverageRow]`
 - [ ] Implement `compare_snapshots_method(conn, before_id, after_id, filter) -> list[CoverageRow]`
 - [ ] Compute `covered_pct = covered_lines / (covered_lines + missed_lines)` in SQL (CASE to avoid div-by-zero)
 
-### gRPC Servicer (`servicer.py`)
-- [ ] Implement `ParanaServicer(parana_pb2_grpc.ParanaServiceServicer)` class
-- [ ] Implement `ListCodebases(request, context)` — calls `queries.list_codebases`
-- [ ] Implement `ListSnapshots(request, context)` — calls `queries.list_snapshots`
-- [ ] Implement `GetSnapshot(request, context)` — calls `queries.get_snapshot`; set `NOT_FOUND` status if missing
-- [ ] Implement `CompareSnapshots(request, context)` — dispatches on `request.level`; set `INVALID_ARGUMENT` for unknown levels
-- [ ] Implement connection pool acquisition (use thread-local or `psycopg.pool.ThreadedConnectionPool`)
+### REST Endpoints (`routers/coverage.py`)
+- [ ] `GET /codebases` — returns list of all codebases
+- [ ] `GET /codebases/{id}/snapshots` — returns snapshots for a codebase; accepts `?limit=` and `?offset=` query params
+- [ ] `GET /snapshots/{id}` — returns a single snapshot; 404 if not found
+- [ ] `GET /compare` — accepts `?before=`, `?after=`, `?level=file|class|method`, optional `?filter=`; returns list of `CoverageRow`
 
-### Server Bootstrap (`main.py`)
-- [ ] Implement `serve(dsn, port, max_workers)` using `grpc.server(ThreadPoolExecutor)`
-- [ ] Add `grpc.reflection` for service discovery
-- [ ] Read `DATABASE_URL`, `PORT`, `MAX_WORKERS` from env
+### Chat Endpoint (`routers/chat.py`)
+- [ ] `POST /chat` — accepts JSON body `{ session_id: str, message: str }`; returns `text/event-stream`
+- [ ] Implement LLM **intent resolution**: send the user message + available API schema description to the LLM; parse the response to determine which coverage endpoint(s) to call or SQL query to execute
+- [ ] Execute the resolved query / endpoint call and collect the result
+- [ ] Implement LLM **render decision**: send the original question + raw result to a second LLM call to decide how to present the answer (`table` or `text`) and generate the response text
+- [ ] Stream the final answer back as SSE events: `text_delta`, `result`, `done`, `error`
+- [ ] Maintain per-session conversation history (in-memory or lightweight store) keyed on `session_id`
+
+### Pydantic Models (`models.py`)
+- [ ] `CodebaseOut`, `SnapshotOut`, `CoverageRowOut`
+- [ ] `ChatRequest { session_id: str, message: str }`
+- [ ] `SSEChunk { type: "text_delta"|"result"|"done"|"error"; data: str | ResultPayload }`
+- [ ] `ResultPayload { result_type: "table"|"text"; columns?: list[str]; rows?: list[dict] }`
+
+### App Bootstrap (`main.py`)
+- [ ] Create `FastAPI` app instance, include coverage and chat routers
+- [ ] Create `psycopg.AsyncConnectionPool` on startup, close on shutdown
+- [ ] Read `DATABASE_URL`, `PORT`, `LLM_API_KEY`, `LLM_MODEL` from env
+- [ ] Add CORS middleware (allow frontend origin)
 - [ ] Graceful shutdown on `SIGTERM` / `SIGINT`
 
 ### Tests
 - [ ] Unit test each query function against a Postgres testcontainer pre-populated with known fixture data
-- [ ] Integration test: start a full `grpc.server` in-process, send real RPC calls, verify responses
-- [ ] Test `CompareSnapshots` with an entity present in only one snapshot (verify NULL handling)
-- [ ] Test `GetSnapshot` with unknown ID returns gRPC `NOT_FOUND`
+- [ ] Integration test coverage endpoints: list, get, compare (file/class/method levels)
+- [ ] Integration test `GET /compare` with an entity present in only one snapshot (verify it is excluded)
+- [ ] Integration test `GET /snapshots/{id}` with unknown ID returns HTTP 404
+- [ ] Unit test chat intent-resolution logic with a mocked LLM client
+- [ ] Unit test SSE stream: verify correct event types are emitted in order
 
 ---
 
@@ -128,7 +130,7 @@
 ### Project Scaffold
 - [ ] `cd frontend && npm create vite@latest . -- --template react-ts`
 - [ ] Add dependencies: `tailwindcss` (optional for base styling)
-- [ ] Configure `vite.config.ts` proxy: `/chat` → `http://localhost:8000` (chat service)
+- [ ] Configure `vite.config.ts` proxy: `/api` → `http://localhost:8000` (REST API), `/chat` → `http://localhost:8000` (chat service)
 
 ### Types (`src/types.ts`)
 - [ ] Define `Message { id, role: "user"|"assistant", text: string, result?: ResultPayload }`
@@ -171,15 +173,8 @@
 
 ## Shared Infrastructure
 
-### `proto/` directory
-- [ ] `proto/parana.proto` (serves both `server/` and `chat/` service)
-
-### `chat/` FastAPI service (LLM orchestration, bridges frontend ↔ gRPC server)
-- [ ] *(Separate checklist when implementation begins)*
-
 ### `docker-compose.yml` (root)
 - [ ] `postgres` service (image `postgres:16`, volume, `POSTGRES_DB/USER/PASSWORD`, healthcheck)
-- [ ] `server` service — build `./server`, depends on postgres, exposes gRPC port `50051`
-- [ ] `chat` service — build `./chat`, depends on server, exposes HTTP port `8000`
-- [ ] `frontend` service — build `./frontend`, depends on chat, exposes port `5173` (dev) or `80` (prod nginx)
-- [ ] `.env.example` with `DATABASE_URL`, `OPENAI_API_KEY`, `GRPC_SERVER_HOST`, `PORT`
+- [ ] `server` service — build `./server`, depends on postgres, exposes HTTP port `8000`
+- [ ] `frontend` service — build `./frontend`, depends on server, exposes port `5173` (dev) or `80` (prod nginx)
+- [ ] `.env.example` with `DATABASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `PORT`

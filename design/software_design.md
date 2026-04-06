@@ -30,15 +30,15 @@ packages in different projects never conflict.
 │                                                                          │
 │   mvn test  ──jacoco:report──►  jacoco.xml                               │
 │                                      │                                  │
-│                              Parana Importer                             │
+│                              Parana Importer  (Python)                   │
 │                            ┌─────────────────┐                          │
-│   JGit: RemoteConfig ──────►  git_origin      │                          │
-│   JGit: Repository   ──────►  git_commit_hash │                          │
-│   JGit: Status/Walk  ──────►  uncommitted_    │                          │
+│   gitpython: origin  ──────►  git_origin      │                          │
+│   gitpython: HEAD    ──────►  git_commit_hash │                          │
+│   gitpython: status  ──────►  uncommitted_    │                          │
 │                               files_hash      │                          │
 │   system clock       ──────►  captured_at     │                          │
 │                            └────────┬────────┘                          │
-│                                     │ JDBC / ORM                        │
+│                                     │ psycopg                           │
 └─────────────────────────────────────┼────────────────────────────────────┘
                                       │
                         ┌─────────────▼──────────────┐
@@ -47,8 +47,17 @@ packages in different projects never conflict.
                         └─────────────┬──────────────┘
                                       │
                         ┌─────────────▼──────────────┐
-                        │   Comparison Service        │
-                        │   (file / class / method)   │
+                        │   REST API + Chat Service   │
+                        │   (Python / FastAPI)        │
+                        │                             │
+                        │  • Coverage query endpoints │
+                        │  • /chat  ── LLM ──► DB     │
+                        └─────────────┬──────────────┘
+                                      │ HTTP / REST
+                        ┌─────────────▼──────────────┐
+                        │   Frontend  (React / TS)    │
+                        │   • Coverage display        │
+                        │   • Chat interface          │
                         └─────────────────────────────┘
 ```
 
@@ -56,7 +65,7 @@ packages in different projects never conflict.
 
 ## 3. Components
 
-### 3.1  Parana Importer
+### 3.1  Parana Importer  *(Python)*
 
 **Responsibility:** parse a JaCoCo XML report and persist all its data into the
 database in one atomic transaction.
@@ -65,10 +74,10 @@ database in one atomic transaction.
 | Input | Source |
 |---|---|
 | JaCoCo XML file | File path supplied on the command line or via API |
-| `git_origin` | JGit `RemoteConfig` for the `origin` remote of the project's `.git` directory |
-| `git_commit_hash` | JGit `Repository.resolve("HEAD")` — SHA-1 of the HEAD commit |
-| `git_branch` | JGit `Repository.getBranch()` — symbolic name of the current branch (e.g. `main`, `feature/foo`) |
-| `uncommitted_files_hash` | Computed from the working tree via JGit (see §3.1.1); the caller must supply the explicit value `CLEAN` for a clean working tree — there is no default |
+| `git_origin` | `gitpython` — `Repo.remotes["origin"].url` from the project's `.git` directory |
+| `git_commit_hash` | `gitpython` — `repo.head.commit.hexsha` (SHA-1 of the HEAD commit) |
+| `git_branch` | `gitpython` — `repo.active_branch.name` — symbolic name of the current branch (e.g. `main`, `feature/foo`) |
+| `uncommitted_files_hash` | Computed from the working tree via `gitpython` (see §3.1.1); the caller must supply the explicit value `CLEAN` for a clean working tree — there is no default |
 | `captured_at` | UTC timestamp of the JaCoCo report generation, supplied by the caller; the importer must not rely on the database `CURRENT_TIMESTAMP` default, which would record insert time rather than report time |
 
 **Processing steps**
@@ -100,15 +109,13 @@ The goal is a stable, reproducible identifier for the state of the working tree
 that is *not* yet committed.  This includes both modified tracked files and any
 untracked files that have not been explicitly ignored.
 
-The importer uses the **JGit** library (`org.eclipse.jgit`) to query repository
-state without requiring a `git` executable in the environment.
+The importer uses the **gitpython** library (`git`) to query repository state
+without requiring a `git` executable in the environment.
 
 Algorithm:
-1. Open the project's `.git` directory with JGit `FileRepositoryBuilder`.
-2. Obtain **modified / staged / deleted tracked files** via `Git.status().call()`
-   — this combines the index diff and working-tree diff.
-3. Obtain **untracked files** from `Status.getUntracked()` (equivalent to
-   `git ls-files --others --exclude-standard`; respects `.gitignore`).
+1. Open the project's `.git` directory with `git.Repo(repo_path)`.
+2. Obtain **modified / staged / deleted tracked files** via `repo.index.diff(None)` (unstaged) and `repo.index.diff("HEAD")` (staged).
+3. Obtain **untracked files** from `repo.untracked_files` (respects `.gitignore`).
 4. Combine both sets and sort deterministically (lexicographic order by path).
 5. For each entry in the sorted list, concatenate:
    `<status_code> <path> <sha256_of_file_content>`.
@@ -155,40 +162,67 @@ tables.
 
 ---
 
-### 3.2  Comparison Service
+### 3.2  REST API & Chat Service  *(Python / FastAPI)*
 
-**Responsibility:** given two snapshot identifiers, produce a structured
-comparison of coverage at the requested granularity level.
+**Responsibility:** expose coverage data over HTTP REST endpoints and provide a
+natural-language chat interface that allows users to query the database in plain
+English.
 
-#### 3.2.1  Input
+#### 3.2.1  Coverage REST Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/codebases` | List all tracked codebases |
+| `GET` | `/codebases/{id}/snapshots` | List snapshots for a codebase (supports `?limit=` and `?offset=`) |
+| `GET` | `/snapshots/{id}` | Get details of a single snapshot |
+| `GET` | `/compare` | Compare two snapshots — query params: `before`, `after`, `level` (`file`/`class`/`method`), optional `filter` |
+
+#### 3.2.2  Chat Endpoint
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/chat` | Accept a plain-English question, translate it via LLM to the appropriate REST endpoint call or SQL query, execute it, and stream the response as Server-Sent Events |
+
+**Chat flow:**
+
+1. The frontend `POST /chat` with `{ session_id, message }`.
+2. The backend sends the message and the available API schema to an LLM to
+   determine which endpoint(s) or query to invoke.
+3. The backend executes the resolved endpoint call or database query.
+4. The raw result is sent to a second LLM call together with the original
+   question to decide how to render the response (table, text summary, etc.).
+5. The backend streams the final answer back as `text/event-stream` SSE chunks
+   with typed events: `text_delta`, `result`, `done`, `error`.
+
+#### 3.2.3  Comparison Input
 
 | Parameter | Description |
 |---|---|
-| `snapshot_before` | ID (or git commit hash) of the earlier snapshot |
-| `snapshot_after` | ID (or git commit hash) of the later snapshot |
-| `level` | One of `FILE`, `CLASS`, or `METHOD` |
+| `before` | ID (or git commit hash) of the earlier snapshot |
+| `after` | ID (or git commit hash) of the later snapshot |
+| `level` | One of `file`, `class`, or `method` |
 | `filter` (optional) | Restrict results to a specific package, class, or file |
 
-#### 3.2.2  Output (one row per entity)
+#### 3.2.4  Comparison Output (one row per entity)
 
 | Column | Description |
 |---|---|
 | `entity_name` | Fully-qualified name of the entity |
-| `covered_lines_before` | Covered lines in `snapshot_before` |
-| `covered_lines_after` | Covered lines in `snapshot_after` |
+| `covered_lines_before` | Covered lines in `before` snapshot |
+| `covered_lines_after` | Covered lines in `after` snapshot |
 | `delta_covered_lines` | `after - before` |
-| `covered_branches_before` | Covered branches in `snapshot_before` |
-| `covered_branches_after` | Covered branches in `snapshot_after` |
+| `covered_branches_before` | Covered branches in `before` snapshot |
+| `covered_branches_after` | Covered branches in `after` snapshot |
 | `delta_covered_branches` | `after - before` |
 | `coverage_pct_before` | `covered / (covered + missed)` for lines |
-| `coverage_pct_after` | Same for `snapshot_after` |
+| `coverage_pct_after` | Same for `after` snapshot |
 | `delta_coverage_pct` | `after - before` |
 
 Only entities present in **both** snapshots are returned.  Files, classes, or
 methods that were added or deleted between the two snapshots are excluded from
 the comparison result.
 
-#### 3.2.3  Comparison Queries
+#### 3.2.5  Comparison Queries
 
 The service executes the pre-defined SQL patterns shown at the bottom of
 `design/schema.sql`.  At each level an `INNER JOIN` on the entity key between
@@ -235,7 +269,7 @@ codebase
 | `uncommitted_files_hash` has no database default | Forcing the importer to supply an explicit value (including the string `CLEAN`) prevents a missing computation from being silently recorded as a clean state |
 | `captured_at` supplied by caller, not by `CURRENT_TIMESTAMP` default | The timestamp should reflect when the JaCoCo report was generated, not when the row was inserted; batch or queued imports can differ significantly |
 | `uncommitted_files_hash` includes untracked files | Untracked source files can affect test results just as much as modified tracked files; omitting them would produce identical hashes for different working trees |
-| Use JGit API rather than `git` CLI subprocess | JGit reads the `.git` directory directly; no `git` executable is required in the runtime environment, avoiding process-launch overhead and PATH dependencies |
+| Use `gitpython` rather than `git` CLI subprocess | `gitpython` reads the `.git` directory directly; no `git` executable is required in the runtime environment, avoiding process-launch overhead and PATH dependencies |
 | `ON DELETE CASCADE` on all snapshot foreign keys | Simplifies snapshot purging: deleting a `coverage_snapshot` row removes all associated data |
 
 ---
@@ -247,8 +281,8 @@ jacoco.xml
     │
     ▼
 ┌─────────────────────────────────────────────────────┐
-│  XML Parser                                         │
-│  • SAX/StAX streaming parser for large reports      │
+│  XML Parser  (lxml / iterparse)                     │
+│  • Streaming parser for large reports               │
 │  • Emits: Package, SourceFile, Class, Method,       │
 │           Line[], Counter[] events                  │
 └──────────────────────────┬──────────────────────────┘
@@ -256,7 +290,8 @@ jacoco.xml
                            ▼
 ┌─────────────────────────────────────────────────────┐
 │  Reference Resolver                                 │
-│  • Upsert codebase (keyed on git_origin via JGit)   │
+│  • Upsert codebase (keyed on git_origin via         │
+│    gitpython)                                       │
 │  • Upsert package / source_file / java_class /      │
 │    method (all scoped to codebase_id)               │
 │  • Returns stable database IDs                      │
@@ -274,6 +309,19 @@ jacoco.xml
                            │
                            ▼
                     Relational Database
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────┐
+│  REST API + Chat Service  (FastAPI)                 │
+│  • Coverage query endpoints                         │
+│  • POST /chat ──► LLM (intent resolution)           │
+│                   ──► DB query / endpoint call      │
+│                   ──► LLM (render decision)         │
+│                   ──► SSE stream to frontend        │
+└──────────────────────────┬──────────────────────────┘
+                           │ HTTP / SSE
+                           ▼
+                    Frontend  (React / TS)
 ```
 
 ---
@@ -285,7 +333,7 @@ jacoco.xml
    the `merge` goal).  The importer validates that the input contains exactly
    one `<report>` root element and rejects files with multiple roots with a
    descriptive error, rather than silently importing a partial report.
-2. The importer uses **JGit** (`org.eclipse.jgit`) to read repository metadata
+2. The importer uses **gitpython** (`git`) to read repository metadata
    (remote origin, HEAD commit, working-tree status, untracked files).  No
    `git` executable is required in the runtime environment.
 3. The project root must contain a `.git` directory (bare repositories are not
