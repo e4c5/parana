@@ -19,6 +19,7 @@ function sseLines(...payloads: object[]): string {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('sendMessage', () => {

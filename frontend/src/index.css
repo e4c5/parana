@@ -75,14 +75,14 @@ body { background: var(--color-bg); color: var(--color-text); font-family: var(-
 }
 
 /* ── Text block ───────────────────────────────────────────────────────────── */
-.text-block { display: inline; }
+.text-block { display: block; }
 .text-block-content {
+  display: inline;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--font-sans);
   font-size: 0.95rem;
   line-height: 1.6;
-  margin: 0;
 }
 
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }

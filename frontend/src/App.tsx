@@ -13,7 +13,11 @@ function App() {
         <h1 className="app-title">Parana — Coverage Chat</h1>
       </header>
       <main className="app-main">
-        <ChatPanel messages={messages} isStreaming={isStreaming} onSend={sendMessage} />
+        <ChatPanel
+            messages={messages}
+            isStreaming={isStreaming}
+            onSend={(text) => { sendMessage(text).catch(console.error); }}
+          />
       </main>
     </div>
   );

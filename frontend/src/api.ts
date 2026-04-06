@@ -42,36 +42,40 @@ export async function sendMessage(
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    // Keep the last (potentially incomplete) line in the buffer.
-    buffer = lines.pop() ?? '';
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      // Keep the last (potentially incomplete) line in the buffer.
+      buffer = lines.pop() ?? '';
 
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const json = line.slice(6).trim();
-      if (!json) continue;
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const json = line.slice(6).trim();
+        if (!json) continue;
 
-      let chunk: SSEChunk;
-      try {
-        chunk = JSON.parse(json) as SSEChunk;
-      } catch {
-        continue;
-      }
+        let chunk: SSEChunk;
+        try {
+          chunk = JSON.parse(json) as SSEChunk;
+        } catch {
+          continue;
+        }
 
-      if (chunk.type === 'text_delta' && typeof chunk.data === 'string') {
-        onTextDelta(chunk.data);
-      } else if (chunk.type === 'result' && chunk.data && typeof chunk.data === 'object') {
-        onResult(chunk.data as ResultPayload);
-      } else if (chunk.type === 'done') {
-        onDone();
-      } else if (chunk.type === 'error') {
-        onError(typeof chunk.data === 'string' ? chunk.data : 'Unknown error');
+        if (chunk.type === 'text_delta' && typeof chunk.data === 'string') {
+          onTextDelta(chunk.data);
+        } else if (chunk.type === 'result' && chunk.data && typeof chunk.data === 'object') {
+          onResult(chunk.data as ResultPayload);
+        } else if (chunk.type === 'done') {
+          onDone();
+        } else if (chunk.type === 'error') {
+          onError(typeof chunk.data === 'string' ? chunk.data : 'Unknown error');
+        }
       }
     }
+  } catch (err) {
+    onError(err instanceof Error ? err.message : String(err));
   }
 }

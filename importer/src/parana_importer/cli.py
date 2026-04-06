@@ -64,9 +64,11 @@ def main(
     captured_at: datetime | None = None
     if captured_at_str is not None:
         try:
-            captured_at = datetime.fromisoformat(captured_at_str).replace(
-                tzinfo=timezone.utc
-            )
+            parsed = datetime.fromisoformat(captured_at_str)
+            if parsed.tzinfo is not None:
+                captured_at = parsed.astimezone(timezone.utc)
+            else:
+                captured_at = parsed.replace(tzinfo=timezone.utc)
         except ValueError as exc:
             click.echo(f"Error: invalid --captured-at value: {exc}", err=True)
             sys.exit(1)

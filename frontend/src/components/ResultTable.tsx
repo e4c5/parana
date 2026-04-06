@@ -34,15 +34,16 @@ export function ResultTable({ result }: Props) {
     }
   }
 
-  const sorted = [...rows].sort((a, b) => {
-    if (!sortCol) return 0;
-    const av = a[sortCol];
-    const bv = b[sortCol];
-    const an = Number(av);
-    const bn = Number(bv);
-    const cmp = !isNaN(an) && !isNaN(bn) ? an - bn : String(av).localeCompare(String(bv));
-    return sortDir === 'asc' ? cmp : -cmp;
-  });
+  const sorted = !sortCol
+    ? rows
+    : [...rows].sort((a, b) => {
+        const av = a[sortCol];
+        const bv = b[sortCol];
+        const an = Number(av);
+        const bn = Number(bv);
+        const cmp = !isNaN(an) && !isNaN(bn) ? an - bn : String(av).localeCompare(String(bv));
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
 
   return (
     <div className="result-table-wrapper">

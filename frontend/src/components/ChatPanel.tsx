@@ -21,12 +21,13 @@ export function ChatPanel({ messages, isStreaming, onSend }: Props) {
     e.preventDefault();
     const trimmed = input.trim();
     if (!trimmed || isStreaming) return;
-    onSend(trimmed);
+    Promise.resolve(onSend(trimmed)).catch(console.error);
     setInput('');
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Skip submit while IME composition is active (e.g. Japanese/Chinese/Korean input)
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSubmit(e as unknown as React.FormEvent);
     }
@@ -38,8 +39,12 @@ export function ChatPanel({ messages, isStreaming, onSend }: Props) {
         {messages.length === 0 && (
           <p className="empty-state">Ask a question about your code coverage…</p>
         )}
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} isStreaming={isStreaming} />
+        {messages.map((msg, i) => (
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            isStreaming={isStreaming && i === messages.length - 1}
+          />
         ))}
         <div ref={bottomRef} />
       </div>

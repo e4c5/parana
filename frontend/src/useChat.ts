@@ -29,29 +29,39 @@ export function useChat(sessionId: string): UseChatReturn {
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
 
-      await apiSend(sessionId, text, {
-        onTextDelta: (delta) => {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantId ? { ...m, text: m.text + delta } : m)),
-          );
-        },
-        onResult: (result: ResultPayload) => {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantId ? { ...m, result } : m)),
-          );
-        },
-        onDone: () => {
-          setIsStreaming(false);
-        },
-        onError: (msg) => {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, text: m.text || `Error: ${msg}` } : m,
-            ),
-          );
-          setIsStreaming(false);
-        },
-      });
+      try {
+        await apiSend(sessionId, text, {
+          onTextDelta: (delta) => {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, text: m.text + delta } : m)),
+            );
+          },
+          onResult: (result: ResultPayload) => {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, result } : m)),
+            );
+          },
+          onDone: () => {
+            setIsStreaming(false);
+          },
+          onError: (msg) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, text: m.text || `Error: ${msg}` } : m,
+              ),
+            );
+            setIsStreaming(false);
+          },
+        });
+      } catch (err) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, text: m.text || `Error: ${String(err)}` } : m,
+          ),
+        );
+      } finally {
+        setIsStreaming(false);
+      }
     },
     [sessionId, isStreaming],
   );
