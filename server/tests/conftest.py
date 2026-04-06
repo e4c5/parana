@@ -11,22 +11,11 @@ testcontainers, applies the schema, and seeds a minimal dataset:
 
 from __future__ import annotations
 
-import importlib.resources
+import pathlib
 from datetime import datetime, timezone
 
 import psycopg
 import pytest
-
-SCHEMA_SQL = (
-    importlib.resources.files("parana_server")
-    .joinpath("../../tests/schema.sql")
-    .read_text(encoding="utf-8")
-    if False  # resolved below
-    else None
-)
-
-# We load the schema from the importer package (same DDL) or from design/.
-import pathlib
 
 _DESIGN_DIR = pathlib.Path(__file__).parent.parent.parent / "design"
 _SCHEMA_PATH = _DESIGN_DIR / "schema.sql"
