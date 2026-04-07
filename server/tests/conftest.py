@@ -11,11 +11,19 @@ testcontainers, applies the schema, and seeds a minimal dataset:
 
 from __future__ import annotations
 
+import os
 import pathlib
 from datetime import datetime, timezone
 
 import psycopg
 import pytest
+
+
+# Set TESTCONTAINERS_RYUK_DISABLED if it's not already set.
+# This improves compatibility with Podman-based environments where the Ryuk reaper
+# container may fail to start or connect.
+if "TESTCONTAINERS_RYUK_DISABLED" not in os.environ:
+    os.environ["TESTCONTAINERS_RYUK_DISABLED"] = "true"
 
 _DESIGN_DIR = pathlib.Path(__file__).parent.parent.parent / "design"
 _SCHEMA_PATH = _DESIGN_DIR / "schema.sql"
