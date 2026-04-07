@@ -22,8 +22,9 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
+from ..deps import get_current_active_user
 from ..db import get_conn
-from ..models import ChatRequest, ResultPayload, SSEChunk
+from ..models import ChatRequest, ResultPayload, SSEChunk, User
 from .. import queries
 
 logger = logging.getLogger(__name__)
@@ -226,7 +227,11 @@ async def _stream_chat(
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest, conn=Depends(get_conn)):
+async def chat(
+    request: ChatRequest,
+    conn=Depends(get_conn),
+    current_user: User = Depends(get_current_active_user),
+):
     """Accept a plain-English question and stream the answer as SSE."""
     return StreamingResponse(
         _stream_chat(request, conn),

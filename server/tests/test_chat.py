@@ -51,9 +51,9 @@ async def _collect_sse(response) -> list[dict]:
 
 
 @pytest.mark.asyncio
-async def test_chat_no_api_key(client):
+async def test_chat_no_api_key(auth_client):
     with patch("parana_server.routers.chat._get_llm_client", return_value=None):
-        resp = await client.post("/chat", json={"session_id": "s1", "message": "hello"})
+        resp = await auth_client.post("/chat", json={"session_id": "s1", "message": "hello"})
     assert resp.status_code == 200
     events = await _collect_sse(resp)
     types = [e["type"] for e in events]
@@ -67,7 +67,7 @@ async def test_chat_no_api_key(client):
 
 
 @pytest.mark.asyncio
-async def test_chat_text_answer(client, seeded_db):
+async def test_chat_text_answer(auth_client, seeded_db):
     _, ids = seeded_db
     intent_json = json.dumps({"action": "list_codebases", "params": {}})
     render_json = json.dumps({"result_type": "text", "answer": "There is 1 codebase."})
@@ -81,7 +81,7 @@ async def test_chat_text_answer(client, seeded_db):
             _make_llm_responses(intent_json, render_json),
         ),
     ):
-        resp = await client.post(
+        resp = await auth_client.post(
             "/chat", json={"session_id": "s2", "message": "How many codebases?"}
         )
 
@@ -103,7 +103,7 @@ async def test_chat_text_answer(client, seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_chat_table_answer(client, seeded_db):
+async def test_chat_table_answer(auth_client, seeded_db):
     _, ids = seeded_db
     intent_json = json.dumps({
         "action": "compare",
@@ -124,7 +124,7 @@ async def test_chat_table_answer(client, seeded_db):
             _make_llm_responses(intent_json, render_json),
         ),
     ):
-        resp = await client.post(
+        resp = await auth_client.post(
             "/chat",
             json={"session_id": "s3", "message": "Compare snap1 and snap2"},
         )
@@ -149,7 +149,7 @@ async def test_chat_table_answer(client, seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_sse_event_order(client):
+async def test_sse_event_order(auth_client):
     intent_json = json.dumps({"action": "no_data", "params": {}})
     render_json = json.dumps({"result_type": "text", "answer": "No data available."})
 
@@ -162,7 +162,7 @@ async def test_sse_event_order(client):
             _make_llm_responses(intent_json, render_json),
         ),
     ):
-        resp = await client.post(
+        resp = await auth_client.post(
             "/chat", json={"session_id": "s4", "message": "anything"}
         )
 
@@ -176,7 +176,7 @@ async def test_sse_event_order(client):
 
 
 @pytest.mark.asyncio
-async def test_session_history_grows(client):
+async def test_session_history_grows(auth_client):
     from parana_server.routers.chat import _session_history
 
     session_id = "s_history_test"
@@ -195,7 +195,7 @@ async def test_session_history_grows(client):
                 _make_llm_responses(intent_json, render_json),
             ),
         ):
-            await client.post(
+            await auth_client.post(
                 "/chat", json={"session_id": session_id, "message": "ping"}
             )
 

@@ -22,8 +22,8 @@ async def client(app):
 
 
 @pytest.mark.asyncio
-async def test_list_codebases(client):
-    resp = await client.get("/codebases")
+async def test_list_codebases(auth_client):
+    resp = await auth_client.get("/codebases")
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
@@ -36,18 +36,18 @@ async def test_list_codebases(client):
 
 
 @pytest.mark.asyncio
-async def test_list_snapshots(client, seeded_db):
+async def test_list_snapshots(auth_client, seeded_db):
     _, ids = seeded_db
-    resp = await client.get(f"/codebases/{ids['codebase_id']}/snapshots")
+    resp = await auth_client.get(f"/codebases/{ids['codebase_id']}/snapshots")
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 2
 
 
 @pytest.mark.asyncio
-async def test_list_snapshots_limit(client, seeded_db):
+async def test_list_snapshots_limit(auth_client, seeded_db):
     _, ids = seeded_db
-    resp = await client.get(f"/codebases/{ids['codebase_id']}/snapshots?limit=1")
+    resp = await auth_client.get(f"/codebases/{ids['codebase_id']}/snapshots?limit=1")
     assert resp.status_code == 200
     assert len(resp.json()) == 1
 
@@ -58,9 +58,9 @@ async def test_list_snapshots_limit(client, seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_get_snapshot_ok(client, seeded_db):
+async def test_get_snapshot_ok(auth_client, seeded_db):
     _, ids = seeded_db
-    resp = await client.get(f"/snapshots/{ids['snap1_id']}")
+    resp = await auth_client.get(f"/snapshots/{ids['snap1_id']}")
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == ids["snap1_id"]
@@ -68,8 +68,8 @@ async def test_get_snapshot_ok(client, seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_get_snapshot_not_found(client):
-    resp = await client.get("/snapshots/999999")
+async def test_get_snapshot_not_found(auth_client):
+    resp = await auth_client.get("/snapshots/999999")
     assert resp.status_code == 404
 
 
@@ -79,9 +79,9 @@ async def test_get_snapshot_not_found(client):
 
 
 @pytest.mark.asyncio
-async def test_compare_file_level(client, seeded_db):
+async def test_compare_file_level(auth_client, seeded_db):
     _, ids = seeded_db
-    resp = await client.get(
+    resp = await auth_client.get(
         f"/compare?before={ids['snap1_id']}&after={ids['snap2_id']}&level=file"
     )
     assert resp.status_code == 200
@@ -91,9 +91,9 @@ async def test_compare_file_level(client, seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_compare_class_level(client, seeded_db):
+async def test_compare_class_level(auth_client, seeded_db):
     _, ids = seeded_db
-    resp = await client.get(
+    resp = await auth_client.get(
         f"/compare?before={ids['snap1_id']}&after={ids['snap2_id']}&level=class"
     )
     assert resp.status_code == 200
@@ -103,10 +103,10 @@ async def test_compare_class_level(client, seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_compare_method_level_excludes_missing(client, seeded_db):
+async def test_compare_method_level_excludes_missing(auth_client, seeded_db):
     """Entities only in one snapshot must be excluded (INNER JOIN)."""
     _, ids = seeded_db
-    resp = await client.get(
+    resp = await auth_client.get(
         f"/compare?before={ids['snap1_id']}&after={ids['snap2_id']}&level=method"
     )
     assert resp.status_code == 200
@@ -117,9 +117,9 @@ async def test_compare_method_level_excludes_missing(client, seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_compare_with_filter(client, seeded_db):
+async def test_compare_with_filter(auth_client, seeded_db):
     _, ids = seeded_db
-    resp = await client.get(
+    resp = await auth_client.get(
         f"/compare?before={ids['snap1_id']}&after={ids['snap2_id']}"
         f"&level=file&filter=com/example"
     )
@@ -128,9 +128,9 @@ async def test_compare_with_filter(client, seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_compare_with_nonmatching_filter(client, seeded_db):
+async def test_compare_with_nonmatching_filter(auth_client, seeded_db):
     _, ids = seeded_db
-    resp = await client.get(
+    resp = await auth_client.get(
         f"/compare?before={ids['snap1_id']}&after={ids['snap2_id']}"
         f"&level=file&filter=xyz_nonexistent"
     )

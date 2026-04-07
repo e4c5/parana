@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Optional
 
 import psycopg
+from psycopg.rows import dict_row
 
 from .models import CodebaseOut, CoverageRowOut, SnapshotOut
 
@@ -248,3 +249,39 @@ async def compare_snapshots_method(
         rows = await cur.fetchall()
 
     return [_build_coverage_row(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+
+async def get_user_by_username(
+    conn: psycopg.AsyncConnection,
+    username: str,
+) -> dict | None:
+    """Retrieve a user by their unique username."""
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "SELECT * FROM app_user WHERE username = %s",
+            (username,),
+        )
+        return await cur.fetchone()
+
+
+async def create_user(
+    conn: psycopg.AsyncConnection,
+    username: str,
+    hashed_password: str,
+) -> dict:
+    """Create a new user and return the user row."""
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """
+            INSERT INTO app_user (username, hashed_password)
+            VALUES (%s, %s)
+            RETURNING *
+            """,
+            (username, hashed_password),
+        )
+        return await cur.fetchone()

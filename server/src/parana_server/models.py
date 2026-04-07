@@ -71,3 +71,37 @@ class SSEChunk(BaseModel):
 
     type: Literal["text_delta", "result", "done", "error"]
     data: str | ResultPayload | None = None
+
+
+# ---------------------------------------------------------------------------
+# Auth models
+# ---------------------------------------------------------------------------
+
+
+class User(BaseModel):
+    """An application user."""
+
+    id: int
+    username: str
+    is_active: bool
+    created_at: datetime
+
+
+class UserCreate(BaseModel):
+    """Request body for user registration."""
+
+    username: str
+    password: str
+
+
+class Token(BaseModel):
+    """JWT access token response."""
+
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    """Data decoded from a JWT."""
+
+    username: str | None = None

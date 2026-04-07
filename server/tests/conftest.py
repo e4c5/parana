@@ -215,9 +215,41 @@ def seeded_db(db_dsn):
 
 
 @pytest.fixture()
-def app(seeded_db):
+async def app(seeded_db):
     """Return a configured FastAPI app wired to the test database."""
     from parana_server.main import create_app
+    from parana_server.db import create_pool
 
     db_dsn, _ids = seeded_db
-    return create_app(dsn=db_dsn)
+    app = create_app(dsn=db_dsn)
+    
+    # Manually initialize the pool for tests because lifespan is flaky in this environment
+    app.state.pool = await create_pool(db_dsn)
+    
+    yield app
+    
+    await app.state.pool.close()
+
+
+@pytest.fixture()
+async def client(app):
+    """Async client for testing."""
+    from httpx import ASGITransport, AsyncClient
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
+
+
+@pytest.fixture()
+async def auth_client(client):
+    """Async client with a valid auth token."""
+    await client.post(
+        "/auth/register",
+        json={"username": "testuser", "password": "testpassword"},
+    )
+    resp = await client.post(
+        "/auth/token",
+        data={"username": "testuser", "password": "testpassword"},
+    )
+    token = resp.json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    yield client

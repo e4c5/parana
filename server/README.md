@@ -8,6 +8,7 @@ The Parana Server is a FastAPI-based REST API and chat service for the Parana co
 - **AI Chat Interface:** A natural-language interface that translates plain-English questions (e.g., "What is the coverage of the payment module compared to last week?") into database queries.
 - **Streaming Responses:** Supports Server-Sent Events (SSE) for the chat interface, providing real-time feedback and data rendering.
 - **Asynchronous & Scalable:** Built on FastAPI with `psycopg` connection pooling for efficient, non-blocking database operations.
+- **Secure Authentication:** JWT-based authentication using OAuth2 Password Flow and Argon2 password hashing.
 
 ## Requirements
 
@@ -38,12 +39,16 @@ PORT=8000
 LLM_API_KEY=your_openai_api_key
 LLM_MODEL=gpt-4o-mini
 FRONTEND_ORIGIN=http://localhost:5173
+JWT_SECRET_KEY=your_long_random_secret_string
+ACCESS_TOKEN_EXPIRE_MINUTES=30
 ```
 
 - `DATABASE_URL`: Connection string for the Parana PostgreSQL database.
 - `LLM_API_KEY`: Your OpenAI API key (used for intent resolution and response rendering).
 - `LLM_MODEL`: The OpenAI model to use (default: `gpt-4o-mini`).
 - `FRONTEND_ORIGIN`: Allowed CORS origin for the frontend application.
+- `JWT_SECRET_KEY`: A secure random string for signing JWTs.
+- `ACCESS_TOKEN_EXPIRE_MINUTES`: How long an access token remains valid (default: 30).
 
 ## Usage
 
@@ -58,14 +63,18 @@ The API will be available at `http://localhost:8000` by default. You can access 
 
 ## API Endpoints
 
-### Coverage
+### Auth
+- `POST /auth/register`: Register a new user.
+- `POST /auth/token`: Login and receive a JWT access token.
+
+### Coverage (Requires Authentication)
 - `GET /codebases`: List all tracked repositories.
 - `GET /codebases/{id}/snapshots`: List coverage snapshots for a codebase.
 - `GET /snapshots/{id}`: Get detailed metadata for a specific snapshot.
 - `GET /compare`: Compare coverage between two snapshots.
   - Query Params: `before` (ID), `after` (ID), `level` (`file`|`class`|`method`), `filter` (optional string).
 
-### Chat
+### Chat (Requires Authentication)
 - `POST /chat`: Stream natural-language responses via SSE.
   - Request Body: `{ "session_id": "string", "message": "string" }`
 
@@ -89,9 +98,12 @@ uv run pytest --cov=parana_server
 
 - `src/parana_server/`
   - `main.py`: FastAPI application bootstrap and configuration.
+  - `auth_utils.py`: Security utilities for hashing and JWT.
+  - `deps.py`: Authentication and authorization dependencies.
   - `db.py`: Async connection pool management.
-  - `queries.py`: SQL query logic for coverage data.
-  - `models.py`: Pydantic models for API requests and responses.
-  - `routers/`:
+  - `queries.py`: SQL query logic for coverage and users.
+  - `models.py`: Pydantic models for API and Auth.
+  - `routers/`
+    - `auth.py`: Registration and login routes.
     - `coverage.py`: Coverage query endpoints.
     - `chat.py`: LLM-orchestrated chat logic and SSE streaming.

@@ -13,8 +13,9 @@ from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from ..deps import get_current_active_user
 from ..db import get_conn
-from ..models import CodebaseOut, CoverageRowOut, SnapshotOut
+from ..models import CodebaseOut, CoverageRowOut, SnapshotOut, User
 from .. import queries
 
 router = APIRouter()
@@ -26,7 +27,10 @@ router = APIRouter()
 
 
 @router.get("/codebases", response_model=list[CodebaseOut])
-async def list_codebases(conn=Depends(get_conn)):
+async def list_codebases(
+    conn=Depends(get_conn),
+    current_user: User = Depends(get_current_active_user),
+):
     """Return all tracked codebases."""
     return await queries.list_codebases(conn)
 
@@ -42,6 +46,7 @@ async def list_snapshots(
     limit: Annotated[int, Query(ge=1, le=200)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
     conn=Depends(get_conn),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Return snapshots for a codebase, newest first."""
     return await queries.list_snapshots(conn, codebase_id, limit=limit, offset=offset)
@@ -53,7 +58,11 @@ async def list_snapshots(
 
 
 @router.get("/snapshots/{snapshot_id}", response_model=SnapshotOut)
-async def get_snapshot(snapshot_id: int, conn=Depends(get_conn)):
+async def get_snapshot(
+    snapshot_id: int,
+    conn=Depends(get_conn),
+    current_user: User = Depends(get_current_active_user),
+):
     """Return a single snapshot; 404 if not found."""
     snap = await queries.get_snapshot(conn, snapshot_id)
     if snap is None:
@@ -79,6 +88,7 @@ async def compare(
         Query(description="Optional substring filter on entity name"),
     ] = None,
     conn=Depends(get_conn),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Compare coverage between two snapshots at file, class, or method level."""
     if level == "file":

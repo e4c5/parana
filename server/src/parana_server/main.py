@@ -20,7 +20,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import create_pool, get_conn as _get_conn_base
-from .routers import coverage, chat
+from .routers import auth, coverage, chat
 
 load_dotenv()
 
@@ -74,6 +74,7 @@ def create_app(dsn: str | None = None) -> FastAPI:
             yield conn
 
     # --- Routers --------------------------------------------------------------
+    app.include_router(auth.router, prefix="/auth", tags=["auth"])
     app.include_router(coverage.router, tags=["coverage"])
     app.include_router(chat.router, tags=["chat"])
 
