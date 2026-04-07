@@ -273,6 +273,20 @@ CREATE INDEX idx_pkg_cov_snapshot ON package_coverage (snapshot_id);
 CREATE INDEX idx_pkg_cov_package  ON package_coverage (package_id);
 
 
+-- ---------------------------------------------------------------------------
+-- 12. App User (authentication and authorization)
+-- ---------------------------------------------------------------------------
+CREATE TABLE app_user (
+    id              BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    username        VARCHAR(255) NOT NULL UNIQUE,
+    hashed_password VARCHAR(255) NOT NULL,
+    is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_app_user_username ON app_user (username);
+
+
 -- =============================================================================
 -- Example comparison queries
 -- =============================================================================
