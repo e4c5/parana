@@ -6,7 +6,8 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 
 # ---------------------------------------------------------------------------
 # Configuration (loaded from env)
@@ -21,17 +22,21 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 
 # Password Hashing
 # ---------------------------------------------------------------------------
 
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+ph = PasswordHasher()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Check if the provided password matches the stored hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        ph.verify(hashed_password, plain_password)
+        return True
+    except VerifyMismatchError:
+        return False
 
 
 def get_password_hash(password: str) -> str:
-    """Generate a bcrypt hash of the plain-text password."""
-    return pwd_context.hash(password)
+    """Generate an argon2 hash of the plain-text password."""
+    return ph.hash(password)
 
 
 # ---------------------------------------------------------------------------
