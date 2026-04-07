@@ -8,6 +8,13 @@ from pathlib import Path
 import pytest
 
 
+# Set TESTCONTAINERS_RYUK_DISABLED if it's not already set.
+# This improves compatibility with Podman-based environments where the Ryuk reaper
+# container may fail to start or connect.
+if "TESTCONTAINERS_RYUK_DISABLED" not in os.environ:
+    os.environ["TESTCONTAINERS_RYUK_DISABLED"] = "true"
+
+
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 

@@ -24,7 +24,8 @@ This project uses `uv` for dependency management.
 cd parana/importer
 
 # Install dependencies and create a virtual environment
-uv sync
+# For development and running tests, include the 'dev' extra:
+uv sync --extra dev
 ```
 
 ## Usage
@@ -52,6 +53,15 @@ uv run parana-import --xml path/to/jacoco.xml --repo /path/to/project
 ### Running Tests
 
 Tests are located in the `tests/` directory and use `pytest`. Integration tests require Docker to run a PostgreSQL container via `testcontainers`.
+
+**Note for Podman Users:** If you are using Podman instead of Docker, you may need to disable the Testcontainers "Ryuk" reaper to avoid connection issues:
+
+```bash
+# Run all tests (Podman compatible)
+TESTCONTAINERS_RYUK_DISABLED=true uv run pytest
+```
+
+Otherwise, run with standard `uv`:
 
 ```bash
 # Run all tests
