@@ -32,8 +32,16 @@ uv sync --extra dev
 
 The importer provides a CLI entry point named `parana-import`.
 
-```bash
-# Basic usage
+### Database Setup
+
+The importer is designed to be self-bootstrapping. When you run `parana-import`, it automatically:
+1.  Connects to the database specified by `--dsn` or `DATABASE_URL`.
+2.  Checks for the existence of the `codebase` table.
+3.  If not found, it executes the bundled `schema.sql` to initialize all required tables, indexes, and constraints.
+
+No manual DDL execution is required before the first import.
+
+### Basic CLI usage
 uv run parana-import --xml path/to/jacoco.xml --repo /path/to/project --dsn "postgresql://user:password@localhost:5432/parana"
 
 # Using a .env file for the DSN
