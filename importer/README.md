@@ -34,19 +34,24 @@ The importer provides a CLI entry point named `parana-import`.
 
 ### Database Setup
 
-The importer is designed to be self-bootstrapping. When you run `parana-import`, it automatically:
-1.  Connects to the database specified by `--dsn` or `DATABASE_URL`.
-2.  Checks for the existence of the `codebase` table.
-3.  If not found, it executes the bundled `schema.sql` to initialize all required tables, indexes, and constraints.
+The importer uses `yoyo-migrations` to manage the database schema. You must run the migrations explicitly before the first import or whenever the schema changes:
 
-No manual DDL execution is required before the first import.
+```bash
+# Run pending migrations
+uv run parana-import migrate --dsn "postgresql://user:password@localhost:5432/parana"
+```
 
 ### Basic CLI usage
-uv run parana-import --xml path/to/jacoco.xml --repo /path/to/project --dsn "postgresql://user:password@localhost:5432/parana"
+
+The importer provides a CLI entry point named `parana-import`. It has two main subcommands: `import` and `migrate`.
+
+```bash
+# Basic import usage
+uv run parana-import import --xml path/to/jacoco.xml --repo /path/to/project --dsn "postgresql://user:password@localhost:5432/parana"
 
 # Using a .env file for the DSN
 # Create a .env file with: DATABASE_URL=postgresql://user:password@localhost:5432/parana
-uv run parana-import --xml path/to/jacoco.xml --repo /path/to/project
+uv run parana-import import --xml path/to/jacoco.xml --repo /path/to/project
 ```
 
 ### Options
@@ -89,4 +94,4 @@ uv run pytest --cov=parana_importer
   - `git_meta.py`: Git metadata resolution using `gitpython`.
   - `sequences.py`: Line sequence compression algorithm.
   - `models.py`: Data structures for in-memory report representation.
-  - `schema.sql`: Database DDL.
+  - `migrations/`: Directory containing versioned SQL migrations.

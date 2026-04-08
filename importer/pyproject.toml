@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-parana-import = "parana_importer.cli:main"
+parana-import = "parana_importer.cli:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/parana_importer"]

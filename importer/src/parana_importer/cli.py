@@ -19,7 +19,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-@click.command()
+@click.group()
+def cli():
+    """Parana Importer and Database Management CLI."""
+    pass
+
+
+@cli.command(name="import")
 @click.option(
     "--xml",
     "xml_path",
@@ -57,8 +63,6 @@ def main(
     captured_at_str: str | None,
 ) -> None:
     """Import a JaCoCo XML coverage report into the Parana database."""
-    # Lazy import to keep startup fast and avoid import errors surfacing as
-    # unformatted tracebacks when the user just runs ``parana-import --help``.
     from .importer import run_import
 
     captured_at: datetime | None = None
@@ -85,3 +89,24 @@ def main(
         sys.exit(1)
 
     click.echo(f"Imported snapshot #{snapshot_id} for codebase #{codebase_id}")
+
+
+@cli.command(name="migrate")
+@click.option(
+    "--dsn",
+    "dsn",
+    envvar="DATABASE_URL",
+    required=True,
+    help="psycopg DSN / URI for the Parana database (or set DATABASE_URL).",
+)
+def migrate(dsn: str) -> None:
+    """Run pending database migrations."""
+    from .db import ensure_schema
+
+    try:
+        click.echo("Applying database migrations...")
+        ensure_schema(dsn)
+        click.echo("Database is up to date.")
+    except Exception as exc:
+        click.echo(f"Error during migration: {exc}", err=True)
+        sys.exit(1)

@@ -43,4 +43,9 @@ def postgres_dsn():
         dsn = url.replace("postgresql+psycopg2://", "postgresql://").replace(
             "postgresql+psycopg://", "postgresql://"
         )
+        
+        # Apply migrations to the fresh test database
+        from parana_importer.db import ensure_schema
+        ensure_schema(dsn)
+        
         yield dsn

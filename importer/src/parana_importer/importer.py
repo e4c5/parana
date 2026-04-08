@@ -66,9 +66,6 @@ def run_import(
     # 3. Persist everything in a single atomic transaction.
     # ------------------------------------------------------------------
     
-    # First, ensure the schema is up to date (this handles its own locking/transaction)
-    db.ensure_schema(dsn)
-
     conn = db.connect(dsn)
     try:
         with conn.transaction():
