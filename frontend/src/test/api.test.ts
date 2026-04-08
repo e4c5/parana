@@ -40,7 +40,7 @@ describe('sendMessage', () => {
     const results: object[] = [];
     let done = false;
 
-    await sendMessage('s1', 'hi', {
+    await sendMessage('s1', 'hi', null, {
       onTextDelta: (d) => deltas.push(d),
       onResult: (r) => results.push(r),
       onDone: () => { done = true; },
@@ -65,7 +65,7 @@ describe('sendMessage', () => {
     }));
 
     const errors: string[] = [];
-    await sendMessage('s2', 'fail', {
+    await sendMessage('s2', 'fail', null, {
       onTextDelta: () => {},
       onResult: () => {},
       onDone: () => {},
@@ -79,7 +79,7 @@ describe('sendMessage', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
 
     const errors: string[] = [];
-    await sendMessage('s3', 'msg', {
+    await sendMessage('s3', 'msg', null, {
       onTextDelta: () => {},
       onResult: () => {},
       onDone: () => {},
@@ -97,7 +97,7 @@ describe('sendMessage', () => {
     }));
 
     const errors: string[] = [];
-    await sendMessage('s4', 'msg', {
+    await sendMessage('s4', 'msg', null, {
       onTextDelta: () => {},
       onResult: () => {},
       onDone: () => {},
@@ -122,7 +122,7 @@ describe('sendMessage', () => {
     const deltas: string[] = [];
     let done = false;
 
-    await sendMessage('s5', 'msg', {
+    await sendMessage('s5', 'msg', null, {
       onTextDelta: (d) => deltas.push(d),
       onResult: () => {},
       onDone: () => { done = true; },

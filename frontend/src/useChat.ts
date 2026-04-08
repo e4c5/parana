@@ -12,7 +12,7 @@ interface UseChatReturn {
   sendMessage: (text: string) => Promise<void>;
 }
 
-export function useChat(sessionId: string): UseChatReturn {
+export function useChat(sessionId: string, token: string | null): UseChatReturn {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -22,15 +22,17 @@ export function useChat(sessionId: string): UseChatReturn {
 
       // Append user message
       const userMsg: Message = { id: uid(), role: 'user', text };
+      setMessages((prev) => [...prev, userMsg]);
+
       // Placeholder assistant message that grows as chunks arrive
       const assistantId = uid();
       const assistantMsg: Message = { id: assistantId, role: 'assistant', text: '' };
+      setMessages((prev) => [...prev, assistantMsg]);
 
-      setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
 
       try {
-        await apiSend(sessionId, text, {
+        await apiSend(sessionId, text, token, {
           onTextDelta: (delta) => {
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, text: m.text + delta } : m)),
@@ -59,11 +61,10 @@ export function useChat(sessionId: string): UseChatReturn {
             m.id === assistantId ? { ...m, text: m.text || `Error: ${String(err)}` } : m,
           ),
         );
-      } finally {
         setIsStreaming(false);
       }
     },
-    [sessionId, isStreaming],
+    [sessionId, token, isStreaming],
   );
 
   return { messages, isStreaming, sendMessage };

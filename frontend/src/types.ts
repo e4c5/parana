@@ -15,3 +15,15 @@ export interface Message {
   text: string;
   result?: ResultPayload;
 }
+
+export interface User {
+  id: number;
+  username: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+}

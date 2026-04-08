@@ -1,73 +1,83 @@
-# React + TypeScript + Vite
+# Parana Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The Parana Frontend is a modern React application that provides a natural-language chat interface for interacting with coverage data. It allows users to ask questions about code coverage, compare snapshots, and view detailed results in an interactive, sortable format.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Natural Language Chat:** A seamless, streaming chat interface for querying the Parana AI.
+- **Interactive Data Rendering:** Complex coverage data is automatically rendered into sortable, themed tables.
+- **Secure Authentication:** Integrated login and registration system using JWT (JSON Web Tokens).
+- **Real-time Updates:** Uses Server-Sent Events (SSE) for streaming LLM responses.
+- **Modern Tech Stack:** Built with React 19, Vite, TypeScript, and Vanilla CSS.
 
-## React Compiler
+## Getting Started
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Prerequisites
 
-## Expanding the ESLint configuration
+- Node.js (v18 or higher)
+- npm or yarn
+- Parana Server running locally (default: `http://localhost:8000`)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Installation
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+```bash
+# Navigate to the frontend directory
+cd parana/frontend
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Install dependencies
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Development
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Start the development server with Vite:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run dev
 ```
+
+The application will be available at `http://localhost:5173`.
+
+**Note on API Proxying:** The development server is configured to proxy requests starting with `/api` and `/chat` to the backend server at `http://localhost:8000`. Ensure the backend is running for full functionality.
+
+## Usage
+
+1.  **Register/Login:** Upon opening the app, you will be prompted to create an account or sign in.
+2.  **Chat:** Use the input bar at the bottom to ask questions like:
+    - *"What is the coverage of the payment module?"*
+    - *"Compare the latest snapshot with the one from last week."*
+    - *"Which classes have the most missed lines?"*
+3.  **Interact:** Click table headers to sort coverage data by name or delta values.
+
+## Development
+
+### Running Tests
+
+This project uses **Vitest** and **React Testing Library** for unit and integration testing.
+
+```bash
+# Run all tests once
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+```
+
+### Linting
+
+```bash
+npm run lint
+```
+
+## Project Structure
+
+- `src/`
+  - `components/`: Reusable UI components (ChatPanel, ResultTable, AuthForm).
+  - `test/`: Test suites and setup.
+  - `api.ts`: API client logic (Auth, Chat SSE).
+  - `useAuth.ts`: Hook for managing authentication state and persistence.
+  - `useChat.ts`: Hook for managing chat message history and streaming.
+  - `useSession.ts`: Hook for generating and persisting session IDs.
+  - `App.tsx`: Main application orchestrator.
+  - `index.css`: Global styles and design tokens.
+  - `types.ts`: Shared TypeScript interfaces.

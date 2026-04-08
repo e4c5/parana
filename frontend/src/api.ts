@@ -1,4 +1,8 @@
-import type { ResultPayload, SSEChunk } from './types';
+import type { ResultPayload, SSEChunk, AuthResponse, User } from './types';
+
+// The base URL for the API. In development with Vite, 
+// this is handled by the proxy in vite.config.ts.
+const API_BASE = '/api';
 
 export interface SendMessageCallbacks {
   onTextDelta: (delta: string) => void;
@@ -8,24 +12,68 @@ export interface SendMessageCallbacks {
 }
 
 /**
+ * POST /auth/register
+ */
+export async function register(username: string, password: string): Promise<User> {
+  const resp = await fetch(`${API_BASE}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+
+  if (!resp.ok) {
+    const error = await resp.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || `Registration failed (HTTP ${resp.status})`);
+  }
+
+  return resp.json();
+}
+
+/**
+ * POST /auth/token
+ */
+export async function login(username: string, password: string): Promise<AuthResponse> {
+  const formData = new URLSearchParams();
+  formData.append('username', username);
+  formData.append('password', password);
+
+  const resp = await fetch(`${API_BASE}/auth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: formData.toString(),
+  });
+
+  if (!resp.ok) {
+    const error = await resp.json().catch(() => ({ detail: 'Login failed' }));
+    throw new Error(error.detail || `Login failed (HTTP ${resp.status})`);
+  }
+
+  return resp.json();
+}
+
+/**
  * POST /chat and consume the text/event-stream response.
- *
- * Each SSE line is `data: <json>`. We decode via ReadableStream + TextDecoder
- * so the function works in any environment that supports Fetch Streams (no
- * EventSource needed).
  */
 export async function sendMessage(
   sessionId: string,
   message: string,
+  token: string | null,
   callbacks: SendMessageCallbacks,
 ): Promise<void> {
   const { onTextDelta, onResult, onDone, onError } = callbacks;
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   let response: Response;
   try {
-    response = await fetch('/chat', {
+    response = await fetch(`${API_BASE}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ session_id: sessionId, message }),
     });
   } catch (err) {
@@ -34,7 +82,11 @@ export async function sendMessage(
   }
 
   if (!response.ok || !response.body) {
-    onError(`HTTP ${response.status}`);
+    if (response.status === 401) {
+      onError('Authentication required or session expired.');
+    } else {
+      onError(`HTTP ${response.status}`);
+    }
     return;
   }
 
