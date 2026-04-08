@@ -65,11 +65,12 @@ def run_import(
     # ------------------------------------------------------------------
     # 3. Persist everything in a single atomic transaction.
     # ------------------------------------------------------------------
+    
+    # First, ensure the schema is up to date (this handles its own locking/transaction)
+    db.ensure_schema(dsn)
+
     conn = db.connect(dsn)
     try:
-        db.ensure_schema(conn)
-        conn.commit()  # DDL must be committed before starting the data transaction.
-
         with conn.transaction():
             codebase_id = db.upsert_codebase(conn, git_origin)
 

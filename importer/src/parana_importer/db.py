@@ -9,15 +9,11 @@ from __future__ import annotations
 
 import importlib.resources
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import psycopg
-
-from .models import Counter
-from .sequences import LineSeqRow
-
-if TYPE_CHECKING:
-    pass
+from yoyo import get_backend, read_migrations
 
 
 # ---------------------------------------------------------------------------
@@ -35,33 +31,23 @@ def connect(dsn: str) -> psycopg.Connection:
 # ---------------------------------------------------------------------------
 
 
-def ensure_schema(conn: psycopg.Connection) -> None:
-    """Apply the Parana DDL if the tables do not yet exist.
+def ensure_schema(dsn: str) -> None:
+    """Apply any pending database migrations using yoyo-migrations.
 
-    Reads the bundled ``schema.sql`` and executes it.  The schema uses
-    ``CREATE TABLE`` statements without ``IF NOT EXISTS``, so this function
-    checks for the existence of the ``codebase`` table first and skips
-    execution if it already exists.
+    Migrations are located in the ``migrations/`` directory.
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT EXISTS (
-                SELECT 1 FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_name = 'codebase'
-            )
-            """
-        )
-        row = cur.fetchone()
-        if row and row[0]:
-            return  # schema already applied
+    # Locate the migrations directory
+    migrations_dir = Path(__file__).parent / "migrations"
 
-        schema_sql = (
-            importlib.resources.files("parana_importer")
-            .joinpath("schema.sql")
-            .read_text(encoding="utf-8")
-        )
-        cur.execute(schema_sql)
+    backend = get_backend(dsn)
+    migrations = read_migrations(str(migrations_dir))
+
+    if not migrations:
+        raise RuntimeError(f"No migrations found in {migrations_dir}")
+
+    with backend.lock():
+        # Apply any migrations that haven't been run yet
+        backend.apply_migrations(backend.to_apply(migrations))
 
 
 # ---------------------------------------------------------------------------
