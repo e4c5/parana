@@ -3,7 +3,7 @@
 Environment variables (loaded from ``.env`` if present):
     DATABASE_URL   — psycopg connection string / URI (required)
     PORT           — TCP port to listen on (default: 8000)
-    LLM_API_KEY    — OpenAI (or compatible) API key for the chat endpoint
+    LLM_API_KEY    — LLM (or compatible) API key for the chat endpoint
     LLM_MODEL      — model name (default: gpt-4o-mini)
     FRONTEND_ORIGIN — allowed CORS origin (default: http://localhost:5173)
 """

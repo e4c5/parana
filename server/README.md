@@ -14,7 +14,7 @@ The Parana Server is a FastAPI-based REST API and chat service for the Parana co
 
 - Python 3.12+
 - PostgreSQL (populated by the [Parana Importer](../importer/))
-- OpenAI API Key (required for the chat feature)
+- LLM API Key (required for the chat feature)
 
 ## Installation
 
@@ -36,7 +36,7 @@ Create a `.env` file in the `server/` directory with the following variables:
 ```env
 DATABASE_URL=postgresql://user:password@localhost:5432/parana
 PORT=8000
-LLM_API_KEY=your_openai_api_key
+LLM_API_KEY=your_llm_api_key
 LLM_MODEL=gpt-4o-mini
 FRONTEND_ORIGIN=http://localhost:5173
 JWT_SECRET_KEY=your_long_random_secret_string
@@ -44,8 +44,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 ```
 
 - `DATABASE_URL`: Connection string for the Parana PostgreSQL database.
-- `LLM_API_KEY`: Your OpenAI API key (used for intent resolution and response rendering).
-- `LLM_MODEL`: The OpenAI model to use (default: `gpt-4o-mini`).
+- `LLM_API_KEY`: Your LLM API key (used for intent resolution and response rendering).
+- `LLM_MODEL`: The LLM model to use (default: `gpt-4o-mini`).
 - `FRONTEND_ORIGIN`: Allowed CORS origin for the frontend application.
 - `JWT_SECRET_KEY`: A secure random string for signing JWTs.
 - `ACCESS_TOKEN_EXPIRE_MINUTES`: How long an access token remains valid (default: 30).

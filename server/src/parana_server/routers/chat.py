@@ -79,9 +79,9 @@ def _sse_line(chunk: SSEChunk) -> str:
 
 
 def _get_llm_client():
-    """Lazily import and return an OpenAI client.
+    """Lazily import and return an LLM client.
 
-    Returns ``None`` when ``OPENAI_API_KEY`` / ``LLM_API_KEY`` is not set
+    Returns ``None`` when ``LLM_API_KEY`` is not set
     (useful for tests that mock this layer).
     """
     import os

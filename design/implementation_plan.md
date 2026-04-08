@@ -69,11 +69,11 @@
 
 ## App 2: REST API Server (`server/`)
 
-**Language:** Python 3.12+ | **Frameworks:** `fastapi`, `uvicorn`, `psycopg[binary]`, `python-dotenv`, `openai` (or provider-agnostic LLM client)
+**Language:** Python 3.12+ | **Frameworks:** `fastapi`, `uvicorn`, `psycopg[binary]`, `python-dotenv`, `llm` (or provider-agnostic LLM client)
 
 ### Project Scaffold
 - [ ] Create `server/` directory
-- [ ] Create `server/pyproject.toml` with entry-point `parana-server`, dependencies (`fastapi`, `uvicorn[standard]`, `psycopg[binary]`, `python-dotenv`, `openai`)
+- [ ] Create `server/pyproject.toml` with entry-point `parana-server`, dependencies (`fastapi`, `uvicorn[standard]`, `psycopg[binary]`, `python-dotenv`, `llm`)
 - [ ] Create `src/parana_server/` package with `__init__.py`
 - [ ] Create `tests/` directory with `conftest.py` and a pytest fixture that spins up a test Postgres instance
 
