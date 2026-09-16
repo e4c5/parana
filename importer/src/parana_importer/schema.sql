@@ -62,7 +62,10 @@ CREATE TABLE coverage_snapshot (
     -- Source report format, e.g. 'jacoco' or 'cobertura'.
     format                  VARCHAR(32)  NOT NULL DEFAULT 'jacoco',
     -- Prevent duplicate snapshots from CI retries; makes import idempotent.
-    UNIQUE (codebase_id, git_commit_hash, uncommitted_files_hash)
+    -- One snapshot per format so a JaCoCo and a Cobertura report for the same
+    -- commit (e.g. a polyglot repo) are stored side by side.
+    CONSTRAINT uq_snapshot_identity
+        UNIQUE (codebase_id, git_commit_hash, uncommitted_files_hash, format)
 );
 
 CREATE INDEX idx_snapshot_codebase ON coverage_snapshot (codebase_id);

@@ -65,14 +65,43 @@ def ensure_schema(conn: psycopg.Connection) -> None:
         cur.execute(schema_sql)
 
 
+# Kept in sync with ``parana_server.db.MIGRATIONS``: both services apply the
+# same idempotent statements so their upgrade order does not matter.
+MIGRATIONS: tuple[str, ...] = (
+    """
+    ALTER TABLE coverage_snapshot
+    ADD COLUMN IF NOT EXISTS format VARCHAR(32) NOT NULL DEFAULT 'jacoco'
+    """,
+    # Replace the original 3-column snapshot key with one that includes format.
+    """
+    DO $$
+    DECLARE old_name TEXT;
+    BEGIN
+        SELECT c.conname INTO old_name
+        FROM pg_constraint c
+        WHERE c.conrelid = 'coverage_snapshot'::regclass
+          AND c.contype = 'u'
+          AND c.conname <> 'uq_snapshot_identity'
+          AND NOT ((SELECT attnum FROM pg_attribute
+                    WHERE attrelid = c.conrelid AND attname = 'format') = ANY (c.conkey));
+        IF old_name IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE coverage_snapshot DROP CONSTRAINT %I', old_name);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                       WHERE conrelid = 'coverage_snapshot'::regclass
+                         AND conname = 'uq_snapshot_identity') THEN
+            ALTER TABLE coverage_snapshot ADD CONSTRAINT uq_snapshot_identity
+                UNIQUE (codebase_id, git_commit_hash, uncommitted_files_hash, format);
+        END IF;
+    END $$
+    """,
+)
+
+
 def _apply_migrations(cur: psycopg.Cursor) -> None:
     """Bring a pre-existing schema up to date with additive, idempotent changes."""
-    cur.execute(
-        """
-        ALTER TABLE coverage_snapshot
-        ADD COLUMN IF NOT EXISTS format VARCHAR(32) NOT NULL DEFAULT 'jacoco'
-        """
-    )
+    for stmt in MIGRATIONS:
+        cur.execute(stmt)
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +220,7 @@ def insert_snapshot(
                 (codebase_id, git_branch, git_commit_hash,
                  uncommitted_files_hash, captured_at, format)
             VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (codebase_id, git_commit_hash, uncommitted_files_hash)
+            ON CONFLICT ON CONSTRAINT uq_snapshot_identity
             DO NOTHING
             RETURNING id
             """,
@@ -215,8 +244,9 @@ def insert_snapshot(
             WHERE codebase_id = %s
               AND git_commit_hash = %s
               AND uncommitted_files_hash = %s
+              AND format = %s
             """,
-            (codebase_id, git_commit_hash, uncommitted_files_hash),
+            (codebase_id, git_commit_hash, uncommitted_files_hash, report_format),
         )
         return cur.fetchone()[0], False
 

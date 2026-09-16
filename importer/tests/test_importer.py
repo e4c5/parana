@@ -241,10 +241,17 @@ class TestRunImportCobertura:
 
         with psycopg.connect(postgres_dsn) as conn:
             with conn.cursor() as cur:
+                # Recreate the pre-format schema: no column, 3-column unique key.
+                cur.execute("DELETE FROM coverage_snapshot")
                 cur.execute("ALTER TABLE coverage_snapshot DROP COLUMN format")
+                cur.execute(
+                    "ALTER TABLE coverage_snapshot ADD UNIQUE "
+                    "(codebase_id, git_commit_hash, uncommitted_files_hash)"
+                )
             conn.commit()
-            db.ensure_schema(conn)
-            conn.commit()
+            for _ in range(2):  # idempotent
+                db.ensure_schema(conn)
+                conn.commit()
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -255,3 +262,51 @@ class TestRunImportCobertura:
                 row = cur.fetchone()
                 assert row is not None
                 assert "jacoco" in row[0]
+                cur.execute(
+                    """
+                    SELECT conname FROM pg_constraint
+                    WHERE conrelid = 'coverage_snapshot'::regclass AND contype = 'u'
+                    """
+                )
+                assert [r[0] for r in cur.fetchall()] == ["uq_snapshot_identity"]
+
+    def test_two_formats_for_same_commit_are_distinct_snapshots(self, postgres_dsn, tmp_path):
+        """A JaCoCo and a Cobertura report for one commit both get stored."""
+        from parana_importer.importer import run_import
+
+        _init_repo(tmp_path, "# polyglot\n")
+        captured = datetime(2024, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+        jacoco_id, codebase_id = run_import(
+            xml_path=str(FIXTURES_DIR / "sample.xml"),
+            repo_path=str(tmp_path),
+            dsn=postgres_dsn,
+            captured_at=captured,
+        )
+        cobertura_id, codebase_id_2 = run_import(
+            xml_path=str(FIXTURES_DIR / "coverage_py_cobertura.xml"),
+            repo_path=str(tmp_path),
+            dsn=postgres_dsn,
+            captured_at=captured,
+        )
+        assert codebase_id == codebase_id_2
+        assert jacoco_id != cobertura_id
+
+        # Re-importing the Cobertura report is still idempotent.
+        again, _ = run_import(
+            xml_path=str(FIXTURES_DIR / "coverage_py_cobertura.xml"),
+            repo_path=str(tmp_path),
+            dsn=postgres_dsn,
+            captured_at=captured,
+        )
+        assert again == cobertura_id
+
+        with psycopg.connect(postgres_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, format FROM coverage_snapshot WHERE id IN (%s, %s) ORDER BY id",
+                (jacoco_id, cobertura_id),
+            )
+            assert cur.fetchall() == [(jacoco_id, "jacoco"), (cobertura_id, "cobertura")]
+            cur.execute(
+                "SELECT COUNT(*) FROM file_coverage WHERE snapshot_id = %s", (cobertura_id,)
+            )
+            assert cur.fetchone()[0] == 4
