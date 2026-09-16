@@ -54,7 +54,8 @@ def ensure_schema(conn: psycopg.Connection) -> None:
         )
         row = cur.fetchone()
         if row and row[0]:
-            return  # schema already applied
+            _apply_migrations(cur)
+            return
 
         schema_sql = (
             importlib.resources.files("parana_importer")
@@ -62,6 +63,16 @@ def ensure_schema(conn: psycopg.Connection) -> None:
             .read_text(encoding="utf-8")
         )
         cur.execute(schema_sql)
+
+
+def _apply_migrations(cur: psycopg.Cursor) -> None:
+    """Bring a pre-existing schema up to date with additive, idempotent changes."""
+    cur.execute(
+        """
+        ALTER TABLE coverage_snapshot
+        ADD COLUMN IF NOT EXISTS format VARCHAR(32) NOT NULL DEFAULT 'jacoco'
+        """
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +174,7 @@ def insert_snapshot(
     git_commit_hash: str,
     uncommitted_files_hash: str,
     captured_at: datetime,
+    report_format: str = "jacoco",
 ) -> tuple[int, bool]:
     """Insert a new coverage snapshot row.
 
@@ -177,13 +189,20 @@ def insert_snapshot(
             """
             INSERT INTO coverage_snapshot
                 (codebase_id, git_branch, git_commit_hash,
-                 uncommitted_files_hash, captured_at)
-            VALUES (%s, %s, %s, %s, %s)
+                 uncommitted_files_hash, captured_at, format)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (codebase_id, git_commit_hash, uncommitted_files_hash)
             DO NOTHING
             RETURNING id
             """,
-            (codebase_id, git_branch, git_commit_hash, uncommitted_files_hash, captured_at),
+            (
+                codebase_id,
+                git_branch,
+                git_commit_hash,
+                uncommitted_files_hash,
+                captured_at,
+                report_format,
+            ),
         )
         row = cur.fetchone()
         if row is not None:

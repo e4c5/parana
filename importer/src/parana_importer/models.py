@@ -1,4 +1,8 @@
-"""Dataclasses that model the in-memory representation of a parsed JaCoCo XML report."""
+"""Dataclasses that model the in-memory representation of a parsed coverage report.
+
+The hierarchy mirrors JaCoCo XML (report → package → class/method + sourcefile →
+line); other formats are normalised into this shape by :mod:`parana_importer.formats`.
+"""
 
 from __future__ import annotations
 
@@ -66,8 +70,14 @@ class Package:
 
 @dataclass
 class Report:
-    """The top-level JaCoCo <report> element."""
+    """A whole coverage report, normalised to the JaCoCo-shaped hierarchy.
+
+    ``format`` names the source tool format (e.g. ``"jacoco"``, ``"cobertura"``).
+    For non-JVM formats, ``INSTRUCTION`` counters carry statement/line counts and
+    ``COMPLEXITY`` counters are absent.
+    """
 
     name: str
     packages: list[Package] = field(default_factory=list)
     counters: list[Counter] = field(default_factory=list)
+    format: str = "jacoco"

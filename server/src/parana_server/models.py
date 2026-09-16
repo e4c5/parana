@@ -29,6 +29,7 @@ class SnapshotOut(BaseModel):
     git_commit_hash: str
     uncommitted_files_hash: str
     captured_at: datetime
+    format: str = "jacoco"
 
 
 class CoverageRowOut(BaseModel):

@@ -53,7 +53,7 @@ def create_app(dsn: str | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Parana Coverage API",
-        description="JaCoCo coverage tracking REST API with natural-language chat interface.",
+        description="Coverage tracking (JaCoCo, Cobertura) REST API with natural-language chat interface.",
         version="0.1.0",
         lifespan=lifespan,
     )

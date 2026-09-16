@@ -1,6 +1,6 @@
 """Import orchestrator — ties together git metadata, XML parsing, and DB writes.
 
-The entire import of one JaCoCo report runs inside a single database
+The entire import of one coverage report runs inside a single database
 transaction.  If any step fails the transaction is rolled back so the database
 is never left in a partially-imported state.
 """
@@ -11,13 +11,13 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from . import db
+from .formats import parse_report
 from .git_meta import (
     compute_uncommitted_files_hash,
     resolve_commit_hash,
     resolve_git_branch,
     resolve_git_origin,
 )
-from .parser import parse_jacoco_xml
 from .sequences import compress_lines
 
 
@@ -26,18 +26,21 @@ def run_import(
     repo_path: str,
     dsn: str,
     captured_at: Optional[datetime] = None,
+    report_format: Optional[str] = None,
 ) -> tuple[int, int]:
-    """Parse a JaCoCo XML report and persist it into the Parana database.
+    """Parse a coverage report and persist it into the Parana database.
 
     All writes happen inside one atomic transaction; if anything fails the
     database is left unchanged.
 
     Args:
-        xml_path:    Path to the JaCoCo XML report file.
-        repo_path:   Root directory of the Java project's git repository.
-        dsn:         psycopg connection string / URI for the Parana database.
-        captured_at: UTC timestamp to record as the report-generation time.
-                     Defaults to the current UTC time when not supplied.
+        xml_path:      Path to the coverage report file (JaCoCo or Cobertura XML).
+        repo_path:     Root directory of the project's git repository.
+        dsn:           psycopg connection string / URI for the Parana database.
+        captured_at:   UTC timestamp to record as the report-generation time.
+                       Defaults to the current UTC time when not supplied.
+        report_format: One of :data:`parana_importer.formats.SUPPORTED_FORMATS`;
+                       auto-detected from the file when ``None``.
 
     Returns:
         ``(snapshot_id, codebase_id)`` — both are BIGINT primary-key values
@@ -58,9 +61,9 @@ def run_import(
     uncommitted_files_hash = compute_uncommitted_files_hash(repo_path)
 
     # ------------------------------------------------------------------
-    # 2. Parse the JaCoCo XML report into memory.
+    # 2. Parse the coverage report into memory.
     # ------------------------------------------------------------------
-    report = parse_jacoco_xml(xml_path)
+    report = parse_report(xml_path, report_format)
 
     # ------------------------------------------------------------------
     # 3. Persist everything in a single atomic transaction.
@@ -80,6 +83,7 @@ def run_import(
                 git_commit_hash,
                 uncommitted_files_hash,
                 captured_at,
+                report.format,
             )
 
             if not is_new:

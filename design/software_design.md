@@ -67,13 +67,27 @@ packages in different projects never conflict.
 
 ### 3.1  Parana Importer  *(Python)*
 
-**Responsibility:** parse a JaCoCo XML report and persist all its data into the
+**Responsibility:** parse a coverage report and persist all its data into the
 database in one atomic transaction.
+
+**Supported report formats** (`--format`, auto-detected from the XML root
+element when omitted; the name is stored in `coverage_snapshot.format`):
+
+| Format | Root element | Typical producers |
+|---|---|---|
+| `jacoco` | `<report>` | JaCoCo (Maven/Gradle) |
+| `cobertura` | `<coverage>` | coverage.py / pytest-cov / Django (`coverage xml`), coverlet, gcovr, Istanbul/nyc |
+
+Every format is normalised by `parana_importer.formats.<name>` into the same
+JaCoCo-shaped `Report` model before persistence.  For Cobertura, `INSTRUCTION`
+counters carry statement/line counts (`mi`/`ci` are 0 or 1 per line), branch
+counts are derived from `condition-coverage="50% (1/2)"`, and `COMPLEXITY` is
+always zero.
 
 **Inputs**
 | Input | Source |
 |---|---|
-| JaCoCo XML file | File path supplied on the command line or via API |
+| Coverage XML file (JaCoCo or Cobertura) | File path supplied on the command line or via API |
 | `git_origin` | `gitpython` — `Repo.remotes["origin"].url` from the project's `.git` directory |
 | `git_commit_hash` | `gitpython` — `repo.head.commit.hexsha` (SHA-1 of the HEAD commit) |
 | `git_branch` | `gitpython` — `repo.active_branch.name` — symbolic name of the current branch (e.g. `main`, `feature/foo`) |
