@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from .db import create_pool, get_conn as _get_conn_base
+from .db import apply_migrations, create_pool, get_conn as _get_conn_base
 from .routers import coverage, chat
 
 load_dotenv()
@@ -47,13 +47,15 @@ def create_app(dsn: str | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         app.state.pool = await create_pool(resolved_dsn)
         logger.info("Database connection pool opened")
+        async with app.state.pool.connection() as conn:
+            await apply_migrations(conn)
         yield
         await app.state.pool.close()
         logger.info("Database connection pool closed")
 
     app = FastAPI(
         title="Parana Coverage API",
-        description="JaCoCo coverage tracking REST API with natural-language chat interface.",
+        description="Coverage tracking (JaCoCo, Cobertura) REST API with natural-language chat interface.",
         version="0.1.0",
         lifespan=lifespan,
     )

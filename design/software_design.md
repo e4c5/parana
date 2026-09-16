@@ -67,13 +67,27 @@ packages in different projects never conflict.
 
 ### 3.1  Parana Importer  *(Python)*
 
-**Responsibility:** parse a JaCoCo XML report and persist all its data into the
+**Responsibility:** parse a coverage report and persist all its data into the
 database in one atomic transaction.
+
+**Supported report formats** (`--format`, auto-detected from the XML root
+element when omitted; the name is stored in `coverage_snapshot.format`):
+
+| Format | Root element | Typical producers |
+|---|---|---|
+| `jacoco` | `<report>` | JaCoCo (Maven/Gradle) |
+| `cobertura` | `<coverage>` | coverage.py / pytest-cov / Django (`coverage xml`), coverlet, gcovr, Istanbul/nyc |
+
+Every format is normalised by `parana_importer.formats.<name>` into the same
+JaCoCo-shaped `Report` model before persistence.  For Cobertura, `INSTRUCTION`
+counters carry statement/line counts (`mi`/`ci` are 0 or 1 per line), branch
+counts are derived from `condition-coverage="50% (1/2)"`, and `COMPLEXITY` is
+always zero.
 
 **Inputs**
 | Input | Source |
 |---|---|
-| JaCoCo XML file | File path supplied on the command line or via API |
+| Coverage XML file (JaCoCo or Cobertura) | File path supplied on the command line or via API |
 | `git_origin` | `gitpython` — `Repo.remotes["origin"].url` from the project's `.git` directory |
 | `git_commit_hash` | `gitpython` — `repo.head.commit.hexsha` (SHA-1 of the HEAD commit) |
 | `git_branch` | `gitpython` — `repo.active_branch.name` — symbolic name of the current branch (e.g. `main`, `feature/foo`) |
@@ -92,7 +106,7 @@ database in one atomic transaction.
    the existing row.
 4. **Create snapshot** – Insert one row into `coverage_snapshot` with
    `codebase_id`, `git_branch`, and the three version-control columns.  If a
-   row with the same `(codebase_id, git_commit_hash, uncommitted_files_hash)`
+   row with the same `(codebase_id, git_commit_hash, uncommitted_files_hash, format)`
    already exists the importer must return the existing snapshot ID and skip all
    subsequent writes (idempotent import).
 5. **Import line sequences** – For each source file, convert the ordered list of
@@ -265,7 +279,7 @@ codebase
 | Store line data as status-based sequences with `SMALLINT` constants | A sequence is a run of consecutive lines sharing the same status (0/1/2); integers save storage and avoid case-sensitivity issues across dialects |
 | Store aggregate counters in separate tables (`package_coverage`, `file_coverage`, `class_coverage`, `method_coverage`) | Comparison queries run against small aggregate rows without needing to re-aggregate sequences |
 | Four version-control columns on `coverage_snapshot` (`git_branch`, `git_commit_hash`, `uncommitted_files_hash`, `captured_at`) | `git_branch` enables branch-scoped queries (e.g. find the latest snapshot on `main`); commit hash identifies clean builds; uncommitted hash distinguishes dirty working trees; wall-clock timestamp allows ordering |
-| `UNIQUE (codebase_id, git_commit_hash, uncommitted_files_hash)` on `coverage_snapshot` | Prevents duplicate snapshots from CI retries; makes import idempotent — re-importing the same report returns the existing snapshot ID |
+| `UNIQUE (codebase_id, git_commit_hash, uncommitted_files_hash, format)` on `coverage_snapshot` | Prevents duplicate snapshots from CI retries; makes import idempotent — re-importing the same report returns the existing snapshot ID. Including `format` lets one commit hold a JaCoCo and a Cobertura snapshot side by side |
 | `uncommitted_files_hash` has no database default | Forcing the importer to supply an explicit value (including the string `CLEAN`) prevents a missing computation from being silently recorded as a clean state |
 | `captured_at` supplied by caller, not by `CURRENT_TIMESTAMP` default | The timestamp should reflect when the JaCoCo report was generated, not when the row was inserted; batch or queued imports can differ significantly |
 | `uncommitted_files_hash` includes untracked files | Untracked source files can affect test results just as much as modified tracked files; omitting them would produce identical hashes for different working trees |

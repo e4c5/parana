@@ -136,3 +136,29 @@ async def test_compare_with_nonmatching_filter(client, seeded_db):
     )
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+# ---------------------------------------------------------------------------
+# Startup migration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_startup_migrates_pre_format_schema(seeded_db):
+    """The server adds the snapshot ``format`` column itself on startup."""
+    import psycopg
+
+    from parana_server.main import create_app
+
+    dsn, ids = seeded_db
+    with psycopg.connect(dsn) as conn:
+        with conn.cursor() as cur:
+            cur.execute("ALTER TABLE coverage_snapshot DROP COLUMN format")
+        conn.commit()
+
+    app = create_app(dsn=dsn)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            resp = await c.get(f"/snapshots/{ids['snap1_id']}")
+    assert resp.status_code == 200
+    assert resp.json()["format"] == "jacoco"

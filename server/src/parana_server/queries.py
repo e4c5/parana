@@ -42,7 +42,7 @@ async def list_snapshots(
         await cur.execute(
             """
             SELECT id, codebase_id, git_branch, git_commit_hash,
-                   uncommitted_files_hash, captured_at
+                   uncommitted_files_hash, captured_at, format
             FROM   coverage_snapshot
             WHERE  codebase_id = %s
             ORDER  BY captured_at DESC
@@ -59,6 +59,7 @@ async def list_snapshots(
             git_commit_hash=r[3],
             uncommitted_files_hash=r[4],
             captured_at=r[5],
+            format=r[6],
         )
         for r in rows
     ]
@@ -73,7 +74,7 @@ async def get_snapshot(
         await cur.execute(
             """
             SELECT id, codebase_id, git_branch, git_commit_hash,
-                   uncommitted_files_hash, captured_at
+                   uncommitted_files_hash, captured_at, format
             FROM   coverage_snapshot
             WHERE  id = %s
             """,
@@ -89,6 +90,7 @@ async def get_snapshot(
         git_commit_hash=row[3],
         uncommitted_files_hash=row[4],
         captured_at=row[5],
+        format=row[6],
     )
 
 

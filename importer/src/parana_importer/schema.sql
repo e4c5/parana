@@ -1,11 +1,13 @@
 -- =============================================================================
--- Parana – JaCoCo Coverage Tracking Schema
+-- Parana – Coverage Tracking Schema
 -- =============================================================================
 -- Design goals
 --   • The system supports multiple independent codebases.  Each codebase is
 --     identified by its git remote origin URL.
---   • Every snapshot captures the full JaCoCo XML for one run of the test suite
---     against a specific codebase.
+--   • Every snapshot captures one coverage report (JaCoCo, Cobertura, …) for
+--     one run of the test suite against a specific codebase.  The report is
+--     normalised into the JaCoCo-shaped hierarchy below; for non-JVM formats
+--     "instructions" carry statement/line counts and complexity columns are 0.
 --   • A snapshot is uniquely tied to a point in time via three columns:
 --       git_commit_hash       – SHA-1 of the HEAD commit at measurement time
 --       uncommitted_files_hash – deterministic hash of every modified tracked
@@ -35,7 +37,7 @@ CREATE TABLE codebase (
 
 
 -- ---------------------------------------------------------------------------
--- 2.  Snapshot  (one row per JaCoCo report import)
+-- 2.  Snapshot  (one row per coverage report import)
 -- ---------------------------------------------------------------------------
 CREATE TABLE coverage_snapshot (
     id                      BIGINT       NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -57,8 +59,13 @@ CREATE TABLE coverage_snapshot (
     -- The importer must not rely on CURRENT_TIMESTAMP, which would record
     -- the insert time rather than the report-generation time.
     captured_at             TIMESTAMP    NOT NULL,
+    -- Source report format, e.g. 'jacoco' or 'cobertura'.
+    format                  VARCHAR(32)  NOT NULL DEFAULT 'jacoco',
     -- Prevent duplicate snapshots from CI retries; makes import idempotent.
-    UNIQUE (codebase_id, git_commit_hash, uncommitted_files_hash)
+    -- One snapshot per format so a JaCoCo and a Cobertura report for the same
+    -- commit (e.g. a polyglot repo) are stored side by side.
+    CONSTRAINT uq_snapshot_identity
+        UNIQUE (codebase_id, git_commit_hash, uncommitted_files_hash, format)
 );
 
 CREATE INDEX idx_snapshot_codebase ON coverage_snapshot (codebase_id);
